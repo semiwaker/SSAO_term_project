@@ -21,14 +21,15 @@ int windowHeight{900};
 GLFWwindow *window;
 
 // Camera
-Camera camera;
+Camera camera{glm::vec3{0.0, 0.0, -150.0}, glm::vec3{0.0, 0.0, 0.0}};
 
-const float keySensitive = 0.01f;
+const float keySensitive = 0.3f;
+const float keyRotateSensitive = 0.01f;
 const float mouseSensitive = 0.001f;
 
 // Rendor
 
-Scene scene;
+std::unique_ptr<Scene> scene;
 
 void updateCamera();
 void update();
@@ -45,6 +46,11 @@ static void errorCallback(int error, const char *description);
 static void keyCallback(GLFWwindow *window, int key, int scanCode, int action, int mods);
 static void cursorPosCallback(GLFWwindow *window, double xpos, double ypos);
 static void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods);
+static void framebufferSizeCallback(GLFWwindow *window, int width, int height);
+
+// OpenGL Debug
+void GLAPIENTRY
+messageCallback(GLenum, GLenum, GLuint, GLenum, GLsizei, const GLchar *, const void *);
 
 int main()
 {
@@ -79,7 +85,7 @@ void updateCamera()
     if (pressing[GLFW_KEY_S])
     {
         auto d = camera.facing();
-        d *= keySensitive * duration2secs(now - pressTime.at(GLFW_KEY_S));
+        d *= -keySensitive * duration2secs(now - pressTime.at(GLFW_KEY_S));
         camera = camera.move(d);
     }
     if (pressing[GLFW_KEY_SPACE])
@@ -96,12 +102,12 @@ void updateCamera()
     }
     if (pressing[GLFW_KEY_Q])
     {
-        auto d = -keySensitive * duration2secs(now - pressTime[GLFW_KEY_Q]);
+        auto d = -keyRotateSensitive * duration2secs(now - pressTime[GLFW_KEY_Q]);
         camera = camera.rotate(static_cast<float>(d));
     }
     if (pressing[GLFW_KEY_E])
     {
-        auto d = keySensitive * duration2secs(now - pressTime[GLFW_KEY_E]);
+        auto d = keyRotateSensitive * duration2secs(now - pressTime[GLFW_KEY_E]);
         camera = camera.rotate(static_cast<float>(d));
     }
 }
@@ -111,6 +117,16 @@ void update()
 }
 void prepare()
 {
+    Assimp::Importer importer;
+    auto ai_scene = importer.ReadFile(
+        "model/house/Old House Files/Old House 2 3D Models.3DS",
+        aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_JoinIdenticalVertices);
+    if (!ai_scene)
+    {
+        std::cerr << importer.GetErrorString() << std::endl;
+        exit(1);
+    }
+    scene = std::make_unique<Scene>(ai_scene, "model/house/Old House Texture");
 }
 void mainLoop()
 {
@@ -121,7 +137,14 @@ void mainLoop()
         glfwPollEvents();
         update();
         fpsCounter.record();
-        scene.render();
+        glClearColor(0.5, 0.5, 0.5, 1.0);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        scene->render(glm::perspective(
+                          glm::radians(45.0f),
+                          static_cast<float>(windowWidth) / static_cast<float>(windowHeight),
+                          0.1f, 500.0f),
+                      camera);
+        // scene->render(glm::identity<glm::mat4>(), camera);
         glfwSwapBuffers(window);
     }
 }
@@ -146,11 +169,27 @@ void initWindow()
     glfwSetKeyCallback(window, keyCallback);
     glfwSetCursorPosCallback(window, cursorPosCallback);
     glfwSetMouseButtonCallback(window, mouseButtonCallback);
+    glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
 
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
 
     glfwMakeContextCurrent(window);
     glfwSwapInterval(0);
+
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
+    {
+        glfwMakeContextCurrent(NULL);
+        glfwDestroyWindow(window);
+        std::cerr << "Glad loading failed!" << std::endl;
+        exit(1);
+    }
+
+    glViewport(0, 0, windowWidth, windowHeight);
+    glEnable(GL_DEBUG_OUTPUT);
+    glEnable(GL_DEPTH_TEST);
+    // glEnable(GL_CULL_FACE);
+    // glCullFace(GL_FRONT);
+    glDebugMessageCallback(messageCallback, 0);
 }
 static void errorCallback(int error, const char *description)
 {
@@ -158,6 +197,8 @@ static void errorCallback(int error, const char *description)
 }
 static void keyCallback(GLFWwindow *window, int key, int scanCode, int action, int mods)
 {
+    if (key == GLFW_KEY_ESCAPE && action == GLFW_RELEASE)
+        glfwSetWindowShouldClose(window, GLFW_TRUE);
     switch (action)
     {
     case GLFW_PRESS:
@@ -178,4 +219,23 @@ static void cursorPosCallback(GLFWwindow *window, double xpos, double ypos)
 }
 static void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
 {
+}
+static void framebufferSizeCallback(GLFWwindow *window, int width, int height)
+{
+    glViewport(0, 0, width, height);
+    windowWidth = width;
+    windowHeight = height;
+}
+void GLAPIENTRY
+messageCallback(GLenum source,
+                GLenum type,
+                GLuint id,
+                GLenum severity,
+                GLsizei length,
+                const GLchar *message,
+                const void *userParam)
+{
+    fprintf(stderr, "GL CALLBACK: %s type = 0x%x, source 0x%x, severity = 0x%x, message = %s\n",
+            (type == GL_DEBUG_TYPE_ERROR ? "** GL ERROR **" : ""),
+            source, type, severity, message);
 }

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 
@@ -9,7 +10,20 @@
 
 using namespace std;
 
-Shader::Shader(const string &fileName, GLenum shaderType)
+// #define DEBUG
+
+#ifdef DEBUG
+#define CHECKERROR(msg)                \
+    if (GL_NO_ERROR != glGetError())   \
+    {                                  \
+        std::cerr << msg << std::endl; \
+        exit(1);                       \
+    }
+#else
+#define CHECKERROR(msg)
+#endif
+
+Shader::Shader(const std::string &fileName, GLenum shaderType)
     : _type(shaderType)
 {
     _obj = glCreateShader(shaderType);
@@ -33,7 +47,7 @@ Shader::Shader(const string &fileName, GLenum shaderType)
         log.resize(maxLength);
         glGetShaderInfoLog(_obj, maxLength, &maxLength, log.data());
 
-        cerr << log << endl;
+        std::cerr << log << std::endl;
         exit(1);
     }
 
@@ -79,6 +93,8 @@ void Pipeline::addShader(const Shader &shader) const
 
 void Pipeline::link()
 {
+    // const GLchar *feedback[] = {"gl_Position"};
+    // glTransformFeedbackVaryings(_obj, 1, feedback, GL_INTERLEAVED_ATTRIBS);
     glLinkProgram(_obj);
 
     GLint isLinked{0};
@@ -95,7 +111,7 @@ void Pipeline::link()
         glDeleteProgram(_obj);
         _obj = 0;
 
-        cerr << log << endl;
+        std::cerr << log << std::endl;
         exit(1);
     }
 }
@@ -106,11 +122,11 @@ void Pipeline::use() const
 }
 GLint Pipeline::uniformLocation(const char *name) const
 {
-    assert(_obj, "Empty object.");
+    assert(_obj);
     return glGetUniformLocation(_obj, name);
 }
 
-Mesh::Mesh(aiMesh *mesh, Scene *scene)
+Mesh::Mesh(const aiMesh *mesh, Scene *scene)
 {
     for (unsigned int i = 0; i < mesh->mNumVertices; ++i)
     {
@@ -123,6 +139,7 @@ Mesh::Mesh(aiMesh *mesh, Scene *scene)
             v.texCoords = glm::vec2{0.0f, 0.0f};
         vertices.push_back(v);
     }
+
     for (unsigned int i = 0; i < mesh->mNumFaces; ++i)
     {
         auto face = mesh->mFaces[i];
@@ -135,6 +152,24 @@ Mesh::Mesh(aiMesh *mesh, Scene *scene)
 }
 void Mesh::setup()
 {
+    // float max_x{vertices[0].position.x};
+    // float max_y{vertices[0].position.y};
+    // float max_z{vertices[0].position.z};
+    // float min_x{vertices[0].position.x};
+    // float min_y{vertices[0].position.y};
+    // float min_z{vertices[0].position.z};
+    // for (auto &i : vertices)
+    // {
+    //     max_x = std::max(max_x, i.position.x);
+    //     max_y = std::max(max_y, i.position.y);
+    //     max_z = std::max(max_z, i.position.z);
+    //     min_x = std::min(min_x, i.position.x);
+    //     min_y = std::min(min_y, i.position.y);
+    //     min_z = std::min(min_z, i.position.z);
+    // }
+    // std::cerr << max_x << " " << max_y << " " << max_z << std::endl;
+    // std::cerr << min_x << " " << min_y << " " << min_z << std::endl;
+
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
     glGenBuffers(1, &EBO);
@@ -160,33 +195,88 @@ void Mesh::setup()
 
     glBindVertexArray(0);
 }
+Mesh::Mesh(Mesh &&other)
+    : vertices(other.vertices), indices(other.indices), textures(other.textures),
+      VAO(other.VAO), VBO(other.VBO), EBO(other.EBO)
+{
+    other.vertices.clear();
+    other.indices.clear();
+    other.textures.clear();
+    other.VAO = 0;
+    other.VBO = 0;
+    other.EBO = 0;
+}
+Mesh &Mesh::operator=(Mesh &&other)
+{
+    vertices = other.vertices;
+    indices = other.indices;
+    textures = other.textures;
+    VAO = other.VAO;
+    VBO = other.VBO;
+    EBO = other.EBO;
+    other.vertices.clear();
+    other.indices.clear();
+    other.textures.clear();
+    other.VAO = 0;
+    other.VBO = 0;
+    other.EBO = 0;
+    return *this;
+}
 Mesh::~Mesh()
 {
-    glDeleteVertexArrays(1, &VAO);
-    glDeleteBuffers(1, &EBO);
-    glDeleteBuffers(1, &VBO);
+    if (VAO)
+        glDeleteVertexArrays(1, &VAO);
+    if (EBO)
+        glDeleteBuffers(1, &EBO);
+    if (VBO)
+        glDeleteBuffers(1, &VBO);
 }
-void Mesh::bindVAO()
+void Mesh::bindVAO() const
 {
     glBindVertexArray(VAO);
 }
-void Mesh::bindTexture(const std::string &name)
+void Mesh::bindTexture(const std::string &name) const
 {
     auto texture = textures.find(name);
     assert(texture != textures.end());
     glActiveTexture(GL_TEXTURE0 + texture->second.pos);
     glBindTexture(GL_TEXTURE_2D, texture->second.id);
 }
-Node::Node(aiNode *node)
+void Mesh::draw() const
+{
+    // GLuint tbo;
+    // glGenBuffers(1, &tbo);
+    // glBindBuffer(GL_ARRAY_BUFFER, tbo);
+    // glBufferData(GL_ARRAY_BUFFER, indices.size() * 3, nullptr, GL_STATIC_READ);
+
+    // glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER, 0, tbo);
+
+    // glBeginTransformFeedback(GL_TRIANGLES);
+
+    glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indices.size()), GL_UNSIGNED_INT, 0);
+
+    // glEndTransformFeedback();
+    // glFlush();
+
+    // GLfloat *feedback = new GLfloat[indices.size() * 3];
+    // memset(feedback, 0, indices.size() * 3 * sizeof(GLfloat));
+    // glGetBufferSubData(GL_TRANSFORM_FEEDBACK_BUFFER, 0, indices.size() * 3, feedback);
+    // for (int i = 0; i != indices.size(); ++i)
+    //     std::cerr << feedback[i * 3] << " " << feedback[i * 3 + 1] << " " << feedback[i * 3 + 2] << std::endl;
+    // delete[] feedback;
+}
+Node::Node(const aiNode *node)
     : meshes(node->mMeshes, node->mMeshes + node->mNumMeshes)
 {
     for (int i = 0; i != node->mNumChildren; ++i)
         children.emplace_back(std::make_unique<Node>(node->mChildren[i]));
-    transMat = glm::make_mat4(&node->mTransformation);
+    for (int i = 0; i != 4; ++i)
+        for (int j = 0; j != 4; ++j)
+            transMat[i][j] = node->mTransformation[i][j];
 }
 void Node::draw(DrawFunc func)
 {
-    draw(func, glm::mat4());
+    draw(func, glm::identity<glm::mat4>());
 }
 void Node::draw(DrawFunc func, glm::mat4 trans)
 {
@@ -196,13 +286,65 @@ void Node::draw(DrawFunc func, glm::mat4 trans)
     for (auto &i : children)
         i->draw(func, trans);
 }
+Renderer::Renderer(const std::vector<Mesh> &mesh) : meshes(mesh)
+{
+}
+BaselineRenderer::BaselineRenderer(const std::vector<Mesh> &mesh)
+    : Renderer(mesh)
+{
+    Shader baselineVs("shaders/baseline.vs", GL_VERTEX_SHADER);
+    Shader baselineFs("shaders/baseline.fs", GL_FRAGMENT_SHADER);
+    pipeline.addShader(baselineVs);
+    pipeline.addShader(baselineFs);
+    pipeline.link();
 
-Scene::Scene(aiScene *scene, const std::string &directory) : ai_scene(scene), dir(directory)
+    pipeline.use();
+    glUniform3f(pipeline.uniformLocation("lightAmbient"), 0.3f, 0.3f, 0.3f);
+    glUniform3f(pipeline.uniformLocation("lightDiffuse"), 0.5f, 0.5f, 0.5f);
+    glUniform3f(pipeline.uniformLocation("lightSpecular"), 0.2f, 0.2f, 0.2f);
+    modelMatIndex = pipeline.uniformLocation("modelMat");
+    VPMatIndex = pipeline.uniformLocation("VPMat");
+    lightPosIndex = pipeline.uniformLocation("lightPos");
+    viewPosIndex = pipeline.uniformLocation("viewPos");
+
+    glUniform1i(pipeline.uniformLocation("textureDiffuse"), 0);
+}
+BaselineRenderer::~BaselineRenderer()
+{
+}
+void BaselineRenderer::setLightPos(glm::vec3 lightPos) const
+{
+    glUniform3f(lightPosIndex, lightPos.x, lightPos.y, lightPos.z);
+}
+
+void BaselineRenderer::render(int idx, glm::mat4 modelMat, glm::mat4 VPMat, glm::vec3 center) const
+{
+    pipeline.use();
+    meshes[idx].bindVAO();
+    CHECKERROR("BindVAO Error");
+    meshes[idx].bindTexture("textureDiffuse");
+    CHECKERROR("BindTexture Error");
+
+    glUniformMatrix4fv(modelMatIndex, 1, false, glm::value_ptr(modelMat));
+    CHECKERROR("modelMat Error");
+    glUniformMatrix4fv(VPMatIndex, 1, false, glm::value_ptr(VPMat));
+    CHECKERROR("VPMat Error");
+    glUniform3f(viewPosIndex, center.x, center.y, center.z);
+    CHECKERROR("viewPos Error");
+
+    meshes[idx].draw();
+    CHECKERROR("Draw Error");
+}
+
+Scene::Scene(const aiScene *scene, const std::string &directory) : ai_scene(scene), dir(directory)
 {
     int meshCnt = scene->mNumMeshes;
     for (int i = 0; i != meshCnt; ++i)
-        meshes.push_back(Mesh{scene->mMeshes[i], this});
+        meshes.emplace_back(scene->mMeshes[i], this);
     root = make_unique<Node>(scene->mRootNode);
+
+    renderer = make_unique<BaselineRenderer>(meshes);
+    renderer->setLightPos(glm::vec3{0.0f, 0.0f, 100.0f});
 }
 Scene::~Scene()
 {
@@ -210,13 +352,19 @@ Scene::~Scene()
         glDeleteTextures(1, &(t.second.id));
 }
 
-void Scene::render() const
+void Scene::render(glm::mat4 proj, const Camera &camera) const
 {
+    proj = proj * camera.getTransMat();
+    glm::vec3 center = camera.center();
+    root->draw([this, &proj, &center](int idx, glm::mat4 trans) {
+        renderer->render(idx, trans, proj, center);
+    });
 }
 
 std::map<std::string, Texture> Scene::loadMaterialTexures(unsigned int index)
 {
     assert(index < ai_scene->mNumMaterials);
+
     auto material = ai_scene->mMaterials[index];
     std::map<std::string, Texture> result;
     for (int i = 0; i != TEXTURE_TYPE_CNT; ++i)
@@ -240,7 +388,7 @@ std::map<std::string, Texture> Scene::loadMaterialTexures(unsigned int index)
     return result;
 }
 
-GLuint TextureFromFile(const string &path, const string &directory, bool gamma)
+GLuint TextureFromFile(const std::string &path, const std::string &directory, bool gamma)
 {
     auto filename = directory + '/' + path;
 

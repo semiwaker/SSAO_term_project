@@ -29,7 +29,6 @@ private:
     std::queue<TimePoint> _que;
     int _cnt{0};
 };
-static const double recordTime{10.0};
 
 // Scope
 class ScopeGuard
@@ -50,6 +49,6 @@ private:
 };
 
 // File
-std::string loadFile(const string &fileName);
+std::string loadFile(const std::string &fileName);
 
 #endif

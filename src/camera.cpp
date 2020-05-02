@@ -34,7 +34,7 @@ glm::vec3 Camera::scale() const
 
 glm::mat4 Camera::getTransMat() const
 {
-    return glm::lookAt(_center, _center + _facing, _up) * glm::scale(glm::mat4(), _scale);
+    return glm::lookAt(_center, _center + _facing, _up) * glm::scale(glm::identity<glm::mat4>(), _scale);
 }
 glm::quat Camera::getQuat() const
 {
@@ -43,7 +43,7 @@ glm::quat Camera::getQuat() const
 
 Camera Camera::move(glm::vec3 delta)
 {
-    return Camera{_center + delta, _facing, _up, _scale};
+    return Camera{_center + delta * _scale, _facing, _up, _scale};
 }
 Camera Camera::scaling(glm::vec3 factor)
 {
@@ -51,7 +51,7 @@ Camera Camera::scaling(glm::vec3 factor)
 }
 Camera Camera::lookAt(glm::vec3 target)
 {
-    return Camera{_center, glm::normalize(_facing + target), _up, _scale};
+    return Camera{_center, glm::normalize(_facing + target * _scale), _up, _scale};
 }
 Camera Camera::rotate(float rad)
 {
@@ -81,9 +81,18 @@ Camera cameraLerp(const Camera &A, const Camera &B, float k)
     // return Camera(glm::lerp(A.center, B.center, k), B.facing, B.up, glm::lerp(A.scale, B.scale, k));
 }
 
-std::ostream &operator<<(std::ostream &os, const glm::vec3 vec)
+std::ostream &operator<<(std::ostream &os, const glm::vec3 &vec)
 {
     os << "(" << vec.x << " " << vec.y << " " << vec.z << ")";
+    return os;
+}
+std::ostream &operator<<(std::ostream &os, const glm::mat4 &mat)
+{
+    using namespace std;
+    os << "[" << endl;
+    for (int i = 0; i != 4; ++i)
+        os << mat[i] << endl;
+    os << "]" << endl;
     return os;
 }
 
@@ -91,10 +100,10 @@ std::ostream &operator<<(std::ostream &os, const Camera &A)
 {
     using namespace std;
     os << "[" << endl;
-    os << "Center: (" << A.center() << "," << endl;
-    os << "Facing: (" << A.facing() << "," << endl;
-    os << "Up: (" << A.up() << "," << endl;
-    os << "Scale: (" << A.scale() << endl;
+    os << "Center: " << A.center() << "," << endl;
+    os << "Facing: " << A.facing() << "," << endl;
+    os << "Up: " << A.up() << "," << endl;
+    os << "Scale: " << A.scale() << endl;
     os << "]" << endl;
     return os;
 }

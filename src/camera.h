@@ -44,7 +44,8 @@ Camera fromQuat(glm::vec3 center, glm::quat quat, glm::vec3 scale = glm::vec3{1.
 
 Camera cameraLerp(const Camera &A, const Camera &B, float k);
 
-std::ostream &operator<<(std::ostream &os, const glm::vec3 vec);
+std::ostream &operator<<(std::ostream &os, const glm::vec3 &vec);
+std::ostream &operator<<(std::ostream &os, const glm::mat4 &mat);
 std::ostream &operator<<(std::ostream &os, const Camera &A);
 
 #endif

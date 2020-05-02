@@ -25,6 +25,8 @@ double FPSCounter::getFPS()
     return static_cast<double>(_cnt) / recordTime;
 }
 
+const double FPSCounter::recordTime{10.0};
+
 ScopeGuard::ScopeGuard(std::function<void()> func) noexcept : _func(func)
 {
 }
