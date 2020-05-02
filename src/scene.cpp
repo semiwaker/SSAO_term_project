@@ -10,7 +10,7 @@
 
 using namespace std;
 
-// #define DEBUG
+#define DEBUG
 
 #ifdef DEBUG
 #define CHECKERROR(msg)                \
@@ -128,6 +128,7 @@ GLint Pipeline::uniformLocation(const char *name) const
 
 Mesh::Mesh(const aiMesh *mesh, Scene *scene)
 {
+    std::cout << "Loading Mesh" << std::endl;
     for (unsigned int i = 0; i < mesh->mNumVertices; ++i)
     {
         Vertex v;
@@ -149,6 +150,7 @@ Mesh::Mesh(const aiMesh *mesh, Scene *scene)
     textures = scene->loadMaterialTexures(mesh->mMaterialIndex);
 
     setup();
+    std::cout << "Mesh Loaded" << std::endl;
 }
 void Mesh::setup()
 {
@@ -268,6 +270,7 @@ void Mesh::draw() const
 Node::Node(const aiNode *node)
     : meshes(node->mMeshes, node->mMeshes + node->mNumMeshes)
 {
+    std::cout << "Loading Node" << node->mName.C_Str() << std::endl;
     for (int i = 0; i != node->mNumChildren; ++i)
         children.emplace_back(std::make_unique<Node>(node->mChildren[i]));
     for (int i = 0; i != 4; ++i)
@@ -339,6 +342,7 @@ void BaselineRenderer::render(int idx, glm::mat4 modelMat, glm::mat4 VPMat, glm:
 Scene::Scene(const aiScene *scene, const std::string &directory) : ai_scene(scene), dir(directory)
 {
     int meshCnt = scene->mNumMeshes;
+    std::cout << "Load model" << std::endl;
     for (int i = 0; i != meshCnt; ++i)
         meshes.emplace_back(scene->mMeshes[i], this);
     root = make_unique<Node>(scene->mRootNode);
@@ -380,6 +384,7 @@ std::map<std::string, Texture> Scene::loadMaterialTexures(unsigned int index)
             result.insert(*iter);
         else
         {
+            std::cout << "Loading Texure: " << fileName << " Type: " << textureTypes[i].name << std::endl;
             Texture t{TextureFromFile(fileName, dir, false), textureTypes[i].pos};
             result[textureTypes[i].name] = t;
             loadedTextures[textureTypes[i].name] = t;
@@ -415,6 +420,8 @@ GLuint TextureFromFile(const std::string &path, const std::string &directory, bo
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        CHECKERROR("LoadTexure");
 
         stbi_image_free(data);
     }

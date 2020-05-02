@@ -97,7 +97,7 @@ void updateCamera()
     if (pressing[GLFW_KEY_LEFT_SHIFT])
     {
         auto d = camera.up();
-        d *= keySensitive * duration2secs(now - pressTime.at(GLFW_KEY_LEFT_SHIFT));
+        d *= -keySensitive * duration2secs(now - pressTime.at(GLFW_KEY_LEFT_SHIFT));
         camera = camera.move(d);
     }
     if (pressing[GLFW_KEY_Q])
@@ -120,6 +120,8 @@ void prepare()
     Assimp::Importer importer;
     auto ai_scene = importer.ReadFile(
         "model/house/Old House Files/Old House 2 3D Models.3DS",
+        // "model/dragon/Dragon 2.5_3ds.3ds",
+        // "model/Medieval tower/Medieval tower_High_.blend",
         aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_JoinIdenticalVertices);
     if (!ai_scene)
     {
@@ -127,6 +129,9 @@ void prepare()
         exit(1);
     }
     scene = std::make_unique<Scene>(ai_scene, "model/house/Old House Texture");
+    // scene = std::make_unique<Scene>(ai_scene, "model/dragon/textures");
+    // scene = std::make_unique<Scene>(ai_scene, "model/Medieval tower/");
+    std::cout << "Model loaded" << std::endl;
 }
 void mainLoop()
 {
