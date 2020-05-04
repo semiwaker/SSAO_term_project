@@ -21,7 +21,7 @@ int windowHeight{900};
 GLFWwindow *window;
 
 // Camera
-Camera camera{glm::vec3{0.0, 0.0, -150.0}, glm::vec3{0.0, 0.0, 0.0}};
+Camera camera{glm::vec3{0.0, 0.0, -30.0}, glm::vec3{0.0, 0.0, 0.0}};
 
 const float keySensitive = 0.3f;
 const float keyRotateSensitive = 0.01f;
@@ -54,9 +54,16 @@ messageCallback(GLenum, GLenum, GLuint, GLenum, GLsizei, const GLchar *, const v
 
 int main()
 {
-    initWindow();
-    prepare();
-    mainLoop();
+    try
+    {
+        initWindow();
+        prepare();
+        mainLoop();
+    }
+    catch (std::exception &e)
+    {
+        std::cerr << e.what() << std::endl;
+    }
     return 0;
 }
 
@@ -119,18 +126,20 @@ void prepare()
 {
     Assimp::Importer importer;
     auto ai_scene = importer.ReadFile(
-        "model/house/Old House Files/Old House 2 3D Models.3DS",
+        // "model/house/Old House Files/Old House 2 3D Models.3DS",
         // "model/dragon/Dragon 2.5_3ds.3ds",
         // "model/Medieval tower/Medieval tower_High_.blend",
-        aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_JoinIdenticalVertices);
+        "model/scifi_gun.obj",
+        aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_JoinIdenticalVertices | aiProcess_CalcTangentSpace);
     if (!ai_scene)
     {
         std::cerr << importer.GetErrorString() << std::endl;
         exit(1);
     }
-    scene = std::make_unique<Scene>(ai_scene, "model/house/Old House Texture");
+    // scene = std::make_unique<Scene>(ai_scene, "model/house/Old House Texture");
     // scene = std::make_unique<Scene>(ai_scene, "model/dragon/textures");
     // scene = std::make_unique<Scene>(ai_scene, "model/Medieval tower/");
+    scene = std::make_unique<Scene>(ai_scene, "model");
     std::cout << "Model loaded" << std::endl;
 }
 void mainLoop()
@@ -142,7 +151,7 @@ void mainLoop()
         glfwPollEvents();
         update();
         fpsCounter.record();
-        glClearColor(0.5, 0.5, 0.5, 1.0);
+        glClearColor(0.2f, 0.4f, 0.5f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         scene->render(glm::perspective(
                           glm::radians(45.0f),

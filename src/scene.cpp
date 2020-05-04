@@ -134,6 +134,8 @@ Mesh::Mesh(const aiMesh *mesh, Scene *scene)
         Vertex v;
         v.position = glm::vec3{mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z};
         v.normal = glm::vec3{mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z};
+        // v.tangent = glm::vec3{mesh->mTangents[i].x, mesh->mTangents[i].y, mesh->mTangents[i].z};
+        // v.bitangent = glm::vec3{mesh->mBitangents[i].x, mesh->mBitangents[i].y, mesh->mBitangents[i].z};
         if (mesh->HasTextureCoords(0))
             v.texCoords = glm::vec2{mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y};
         else
@@ -148,6 +150,7 @@ Mesh::Mesh(const aiMesh *mesh, Scene *scene)
             indices.push_back(face.mIndices[j]);
     }
     textures = scene->loadMaterialTexures(mesh->mMaterialIndex);
+    params = scene->loadMaterialParams(mesh->mMaterialIndex);
 
     setup();
     std::cout << "Mesh Loaded" << std::endl;
@@ -194,12 +197,20 @@ void Mesh::setup()
     // vertex texture coords
     glEnableVertexAttribArray(2);
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void *)offsetof(Vertex, texCoords));
+    /*
+    // vertex tangent coords
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void *)offsetof(Vertex, tangent));
+    // vertex bitangent coords
+    glEnableVertexAttribArray(4);
+    glVertexAttribPointer(4, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void *)offsetof(Vertex, bitangent));
+    */
 
     glBindVertexArray(0);
 }
 Mesh::Mesh(Mesh &&other)
     : vertices(other.vertices), indices(other.indices), textures(other.textures),
-      VAO(other.VAO), VBO(other.VBO), EBO(other.EBO)
+      params(other.params), VAO(other.VAO), VBO(other.VBO), EBO(other.EBO)
 {
     other.vertices.clear();
     other.indices.clear();
@@ -213,6 +224,7 @@ Mesh &Mesh::operator=(Mesh &&other)
     vertices = other.vertices;
     indices = other.indices;
     textures = other.textures;
+    params = other.params;
     VAO = other.VAO;
     VBO = other.VBO;
     EBO = other.EBO;
@@ -243,6 +255,10 @@ void Mesh::bindTexture(const std::string &name) const
     assert(texture != textures.end());
     glActiveTexture(GL_TEXTURE0 + texture->second.pos);
     glBindTexture(GL_TEXTURE_2D, texture->second.id);
+}
+float Mesh::getFloatParam(const std::string &name) const
+{
+    return params.floatParams.at(name);
 }
 void Mesh::draw() const
 {
@@ -279,7 +295,7 @@ Node::Node(const aiNode *node)
 }
 void Node::draw(DrawFunc func)
 {
-    draw(func, glm::identity<glm::mat4>());
+    draw(func, glm::rotate(glm::identity<glm::mat4>(), glm::radians(90.0f), glm::vec3(1.0, 0.0, 0.0)));
 }
 void Node::draw(DrawFunc func, glm::mat4 trans)
 {
@@ -292,25 +308,42 @@ void Node::draw(DrawFunc func, glm::mat4 trans)
 Renderer::Renderer(const std::vector<Mesh> &mesh) : meshes(mesh)
 {
 }
-BaselineRenderer::BaselineRenderer(const std::vector<Mesh> &mesh)
-    : Renderer(mesh)
+BaselineRenderer::BaselineRenderer(
+    const std::vector<Mesh> &mesh,
+    bool diffuseMap,
+    bool specularMap,
+    bool normalsMap,
+    bool heightMap,
+    const string &vertexShader,
+    const string &fragmentShader)
+    : Renderer(mesh),
+      _diffuseMap(diffuseMap), _specularMap(specularMap), _normalsMap(normalsMap), _heightMap(heightMap)
 {
-    Shader baselineVs("shaders/baseline.vs", GL_VERTEX_SHADER);
-    Shader baselineFs("shaders/baseline.fs", GL_FRAGMENT_SHADER);
+    Shader baselineVs("shaders/"s + vertexShader, GL_VERTEX_SHADER);
+    Shader baselineFs("shaders/"s + fragmentShader, GL_FRAGMENT_SHADER);
     pipeline.addShader(baselineVs);
     pipeline.addShader(baselineFs);
     pipeline.link();
 
     pipeline.use();
-    glUniform3f(pipeline.uniformLocation("lightAmbient"), 0.3f, 0.3f, 0.3f);
-    glUniform3f(pipeline.uniformLocation("lightDiffuse"), 0.5f, 0.5f, 0.5f);
-    glUniform3f(pipeline.uniformLocation("lightSpecular"), 0.2f, 0.2f, 0.2f);
+    glUniform3f(pipeline.uniformLocation("lightAmbient"), 1.0f, 1.0f, 1.0f);
+    glUniform3f(pipeline.uniformLocation("lightDiffuse"), 1.0f, 1.0f, 1.0f);
+    glUniform3f(pipeline.uniformLocation("lightSpecular"), 1.0f, 1.0f, 1.0f);
     modelMatIndex = pipeline.uniformLocation("modelMat");
     VPMatIndex = pipeline.uniformLocation("VPMat");
     lightPosIndex = pipeline.uniformLocation("lightPos");
     viewPosIndex = pipeline.uniformLocation("viewPos");
+    shininessIndex = pipeline.uniformLocation("shininess");
+    shininessStrengthIndex = pipeline.uniformLocation("shininessStrength");
 
-    glUniform1i(pipeline.uniformLocation("textureDiffuse"), 0);
+    if (diffuseMap)
+        glUniform1i(pipeline.uniformLocation("textureDiffuse"), 0);
+    if (normalsMap)
+        glUniform1i(pipeline.uniformLocation("textureNormals"), 0);
+    if (specularMap)
+        glUniform1i(pipeline.uniformLocation("textureSpecular"), 0);
+    if (heightMap)
+        glUniform1i(pipeline.uniformLocation("textureHeight"), 0);
 }
 BaselineRenderer::~BaselineRenderer()
 {
@@ -325,7 +358,15 @@ void BaselineRenderer::render(int idx, glm::mat4 modelMat, glm::mat4 VPMat, glm:
     pipeline.use();
     meshes[idx].bindVAO();
     CHECKERROR("BindVAO Error");
-    meshes[idx].bindTexture("textureDiffuse");
+    if (_diffuseMap)
+        meshes[idx].bindTexture("textureDiffuse");
+    if (_specularMap)
+        meshes[idx].bindTexture("textureSpecular");
+    if (_normalsMap)
+        meshes[idx].bindTexture("textureNormals");
+    if (_heightMap)
+        meshes[idx].bindTexture("textureHeight");
+
     CHECKERROR("BindTexture Error");
 
     glUniformMatrix4fv(modelMatIndex, 1, false, glm::value_ptr(modelMat));
@@ -334,6 +375,9 @@ void BaselineRenderer::render(int idx, glm::mat4 modelMat, glm::mat4 VPMat, glm:
     CHECKERROR("VPMat Error");
     glUniform3f(viewPosIndex, center.x, center.y, center.z);
     CHECKERROR("viewPos Error");
+
+    glUniform1f(shininessIndex, meshes[idx].getFloatParam("shininess"));
+    // glUniform1f(shininessStrengthIndex, meshes[idx].getFloatParam("shininessStrength"));
 
     meshes[idx].draw();
     CHECKERROR("Draw Error");
@@ -347,8 +391,8 @@ Scene::Scene(const aiScene *scene, const std::string &directory) : ai_scene(scen
         meshes.emplace_back(scene->mMeshes[i], this);
     root = make_unique<Node>(scene->mRootNode);
 
-    renderer = make_unique<BaselineRenderer>(meshes);
-    renderer->setLightPos(glm::vec3{0.0f, 0.0f, 100.0f});
+    renderer = make_unique<BaselineRenderer>(meshes, false, false, false, false, "baseline.vs", "baseline.fs");
+    renderer->setLightPos(glm::vec3{100.0f, 0.0f, -100.0f});
 }
 Scene::~Scene()
 {
@@ -381,15 +425,27 @@ std::map<std::string, Texture> Scene::loadMaterialTexures(unsigned int index)
         std::string fileName{aifileName.C_Str()};
         auto iter = loadedTextures.find(fileName);
         if (iter != loadedTextures.end())
-            result.insert(*iter);
+            result[textureTypes[i].name] = iter->second;
         else
         {
             std::cout << "Loading Texure: " << fileName << " Type: " << textureTypes[i].name << std::endl;
             Texture t{TextureFromFile(fileName, dir, false), textureTypes[i].pos};
             result[textureTypes[i].name] = t;
-            loadedTextures[textureTypes[i].name] = t;
+            loadedTextures[fileName] = t;
         }
     }
+    return result;
+}
+MaterialParams Scene::loadMaterialParams(unsigned int index)
+{
+    MaterialParams result;
+    auto material = ai_scene->mMaterials[index];
+    float shininess{0.0f};
+    material->Get(AI_MATKEY_SHININESS, shininess);
+    result.floatParams["shininess"] = shininess;
+    float shininessStrength{1.0f};
+    material->Get(AI_MATKEY_SHININESS_STRENGTH, shininessStrength);
+    result.floatParams["shininessStrength"] = shininessStrength;
     return result;
 }
 

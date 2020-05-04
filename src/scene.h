@@ -59,6 +59,8 @@ struct Vertex
     glm::vec3 position;
     glm::vec3 normal;
     glm::vec2 texCoords;
+    // glm::vec3 tangent;
+    // glm::vec3 bitangent;
 };
 
 struct Texture
@@ -82,6 +84,11 @@ const TextureTuple textureTypes[] = {
     TextureTuple{aiTextureType_HEIGHT, "textureHeight", 3},
 };
 
+struct MaterialParams
+{
+    std::map<std::string, float> floatParams;
+};
+
 class Scene;
 class Mesh
 {
@@ -95,6 +102,7 @@ public:
 
     void bindVAO() const;
     void bindTexture(const std::string &name) const;
+    float getFloatParam(const std::string &name) const;
     void draw() const;
 
 private:
@@ -103,6 +111,7 @@ private:
     std::vector<Vertex> vertices;
     std::vector<unsigned int> indices;
     std::map<std::string, Texture> textures;
+    MaterialParams params;
     GLuint VAO{0};
     GLuint VBO{0};
     GLuint EBO{0};
@@ -144,7 +153,14 @@ protected:
 class BaselineRenderer : public Renderer
 {
 public:
-    BaselineRenderer(const std::vector<Mesh> &mesh);
+    BaselineRenderer(
+        const std::vector<Mesh> &mesh,
+        bool diffuseMap = false,
+        bool specularMap = false,
+        bool normalsMap = false,
+        bool heightMap = false,
+        const std::string &vertexShader = "baseline.vs",
+        const std::string &fragmentShader = "baseline.fs");
     BaselineRenderer(const BaselineRenderer &) = delete;
     BaselineRenderer &operator=(const BaselineRenderer &) = delete;
     BaselineRenderer(BaselineRenderer &&) = delete;
@@ -159,6 +175,12 @@ private:
     GLint VPMatIndex;
     GLint lightPosIndex;
     GLint viewPosIndex;
+    GLint shininessIndex;
+    GLint shininessStrengthIndex;
+    bool _diffuseMap{false};
+    bool _specularMap{false};
+    bool _normalsMap{false};
+    bool _heightMap{false};
 };
 
 class Scene
@@ -170,9 +192,11 @@ public:
     Scene(Scene &&) = delete;
     Scene &operator=(Scene &&) = delete;
     ~Scene();
+
     void render(glm::mat4 proj, const Camera &camera) const;
 
     std::map<std::string, Texture> loadMaterialTexures(unsigned int index);
+    MaterialParams loadMaterialParams(unsigned int index);
 
 private:
     const aiScene *ai_scene;

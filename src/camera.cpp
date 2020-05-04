@@ -43,7 +43,7 @@ glm::quat Camera::getQuat() const
 
 Camera Camera::move(glm::vec3 delta)
 {
-    return Camera{_center + delta * _scale, _facing, _up, _scale};
+    return Camera{_center + delta, _facing, _up, _scale};
 }
 Camera Camera::scaling(glm::vec3 factor)
 {
@@ -51,7 +51,7 @@ Camera Camera::scaling(glm::vec3 factor)
 }
 Camera Camera::lookAt(glm::vec3 target)
 {
-    return Camera{_center, glm::normalize(_facing + target * _scale), _up, _scale};
+    return Camera{_center, glm::normalize(_facing + target), _up, _scale};
 }
 Camera Camera::rotate(float rad)
 {
