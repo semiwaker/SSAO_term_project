@@ -260,11 +260,11 @@ private:
     Pipeline lighting;
     Quad quad;
     GBuffer gBuffer;
-    GLuint noiseTexture;
     GLuint ssaoFBO;
     GLuint ssaoColorBuffer;
     GLuint blurFBO;
     GLuint blurBuffer;
+    GLuint noiseTexture;
     GLint WVPIndex;
     GLint WVIndex;
     GLint modelMatIndex;

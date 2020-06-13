@@ -35,5 +35,5 @@ void main()
     float spec = pow(max(dot(viewDir, reflectDir), 0.0), 1.0);
     vec4 specular = spec * color * vec4(lightSpecular, shininess);
 
-    fragColor = ambient + diffuse; //+ specular;
+    fragColor = ambient + diffuse + specular;
 }
