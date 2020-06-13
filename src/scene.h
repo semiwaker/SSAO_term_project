@@ -2,6 +2,7 @@
 #ifndef SCENE_H
 #define SCENE_H
 
+#include <array>
 #include <functional>
 #include <map>
 #include <memory>
@@ -59,8 +60,8 @@ struct Vertex
     glm::vec3 position;
     glm::vec3 normal;
     glm::vec2 texCoords;
-    // glm::vec3 tangent;
-    // glm::vec3 bitangent;
+    glm::vec3 tangent;
+    glm::vec3 bitangent;
 };
 
 struct Texture
@@ -133,6 +134,45 @@ private:
     glm::mat4 transMat;
 };
 
+class Quad
+{
+public:
+    Quad(int width, int height);
+    Quad(const Quad &) = delete;
+    Quad &operator=(const Quad &) = delete;
+    Quad(Quad &&) = delete;
+    Quad &operator=(Quad &&) = delete;
+    ~Quad();
+
+    void draw() const;
+
+private:
+    GLuint VAO{0};
+    GLuint VBO{0};
+};
+
+class GBuffer
+{
+public:
+    GBuffer(int width, int height);
+    GBuffer(const GBuffer &) = delete;
+    GBuffer &operator=(const GBuffer &) = delete;
+    GBuffer(GBuffer &&) = delete;
+    GBuffer &operator=(GBuffer &&) = delete;
+    ~GBuffer();
+
+    void bindForRender() const;
+    void bindAsTextures() const;
+    void unbind() const;
+
+private:
+    GLuint gBuffer{0};
+    GLuint position{0};
+    GLuint normal{0};
+    GLuint albedo{0};
+    GLuint rboDepth;
+};
+
 class Renderer
 {
 public:
@@ -143,7 +183,7 @@ public:
     Renderer &operator=(Renderer &&) = delete;
     virtual ~Renderer() = default;
 
-    virtual void render(int idx, glm::mat4 modelMat, glm::mat4 VPMat, glm::vec3 center) const = 0;
+    virtual void render(std::shared_ptr<Node> root, glm::mat4 proj, const Camera &camera) const = 0;
     virtual void setLightPos(glm::vec3 lightPos) const = 0;
 
 protected:
@@ -166,7 +206,8 @@ public:
     BaselineRenderer(BaselineRenderer &&) = delete;
     BaselineRenderer &operator=(BaselineRenderer &&) = delete;
     ~BaselineRenderer() override;
-    void render(int idx, glm::mat4 modelMat, glm::mat4 VPMat, glm::vec3 center) const override;
+    void render(std::shared_ptr<Node> root, glm::mat4 proj, const Camera &camera) const override;
+    void render(int idx, glm::mat4 modelMat, glm::mat4 VPMat, glm::vec3 center) const;
     void setLightPos(glm::vec3 lightPos) const override;
 
 private:
@@ -181,6 +222,65 @@ private:
     bool _specularMap{false};
     bool _normalsMap{false};
     bool _heightMap{false};
+};
+class SSAORenderer : public Renderer
+{
+public:
+    SSAORenderer(
+        const std::vector<Mesh> &mesh,
+        int width,
+        int height,
+        bool diffuseMap = false,
+        bool specularMap = false,
+        bool normalsMap = false,
+        bool heightMap = false);
+    SSAORenderer(const BaselineRenderer &) = delete;
+    SSAORenderer &operator=(const BaselineRenderer &) = delete;
+    SSAORenderer(BaselineRenderer &&) = delete;
+    SSAORenderer &operator=(BaselineRenderer &&) = delete;
+    ~SSAORenderer() override;
+    void setLightPos(glm::vec3 lightPos) const override;
+
+private:
+    void makeSSAOFBO();
+    void makeBlurFBO();
+    void makeKernel();
+    void makeNoise();
+
+    void render(std::shared_ptr<Node> root, glm::mat4 proj, const Camera &camera) const override;
+    void geometryPass(std::shared_ptr<Node> root, glm::mat4 viewMat, glm::mat4 projMat) const;
+    void geometryRender(int idx, glm::mat4 modelMat, glm::mat4 viewMat, glm::mat4 projMat) const;
+    void ssaoPass(glm::mat4 projMat) const;
+    void blurPass() const;
+    void lightingPass(glm::vec3 viewPos) const;
+
+    Pipeline geometry;
+    Pipeline ssao;
+    Pipeline blur;
+    Pipeline lighting;
+    Quad quad;
+    GBuffer gBuffer;
+    GLuint noiseTexture;
+    GLuint ssaoFBO;
+    GLuint ssaoColorBuffer;
+    GLuint blurFBO;
+    GLuint blurBuffer;
+    GLint WVPIndex;
+    GLint WVIndex;
+    GLint modelMatIndex;
+    GLint projMatIndex;
+    GLint lightPosIndex;
+    GLint viewPosIndex;
+    GLint shininessIndex;
+    GLint shininessStrengthIndex;
+    bool _diffuseMap{false};
+    bool _specularMap{false};
+    bool _normalsMap{false};
+    bool _heightMap{false};
+    int _width;
+    int _height;
+
+    std::array<GLfloat, 64 * 3> kernel;
 };
 
 class Scene
@@ -201,7 +301,7 @@ public:
 private:
     const aiScene *ai_scene;
     std::string dir;
-    std::unique_ptr<Node> root;
+    std::shared_ptr<Node> root;
     std::map<std::string, Texture> loadedTextures;
     std::vector<Mesh> meshes;
 

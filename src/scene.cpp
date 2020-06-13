@@ -1,6 +1,8 @@
 #include <algorithm>
+#include <array>
 #include <fstream>
 #include <iostream>
+#include <random>
 
 #include "scene.h"
 #include "utils.h"
@@ -134,8 +136,8 @@ Mesh::Mesh(const aiMesh *mesh, Scene *scene)
         Vertex v;
         v.position = glm::vec3{mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z};
         v.normal = glm::vec3{mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z};
-        // v.tangent = glm::vec3{mesh->mTangents[i].x, mesh->mTangents[i].y, mesh->mTangents[i].z};
-        // v.bitangent = glm::vec3{mesh->mBitangents[i].x, mesh->mBitangents[i].y, mesh->mBitangents[i].z};
+        v.tangent = glm::vec3{mesh->mTangents[i].x, mesh->mTangents[i].y, mesh->mTangents[i].z};
+        v.bitangent = glm::vec3{mesh->mBitangents[i].x, mesh->mBitangents[i].y, mesh->mBitangents[i].z};
         if (mesh->HasTextureCoords(0))
             v.texCoords = glm::vec2{mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y};
         else
@@ -197,14 +199,14 @@ void Mesh::setup()
     // vertex texture coords
     glEnableVertexAttribArray(2);
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void *)offsetof(Vertex, texCoords));
-    /*
+    // /*
     // vertex tangent coords
     glEnableVertexAttribArray(3);
     glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void *)offsetof(Vertex, tangent));
     // vertex bitangent coords
     glEnableVertexAttribArray(4);
     glVertexAttribPointer(4, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void *)offsetof(Vertex, bitangent));
-    */
+    // */
 
     glBindVertexArray(0);
 }
@@ -305,6 +307,110 @@ void Node::draw(DrawFunc func, glm::mat4 trans)
     for (auto &i : children)
         i->draw(func, trans);
 }
+
+Quad::Quad(int width, int height)
+{
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+
+    glBindVertexArray(VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+
+    std::array<glm::vec2, 4> vertices = {
+        glm::vec2{-1.0, 1.0},
+        glm::vec2{-1.0, -1.0},
+        glm::vec2{1.0, 1.0},
+        glm::vec2{1.0, -1.0}};
+
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(glm::vec2), vertices.data(), GL_STATIC_DRAW);
+
+    // pos
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec2), (void *)0);
+}
+Quad::~Quad()
+{
+    if (VAO)
+        glDeleteVertexArrays(1, &VAO);
+    if (VBO)
+        glDeleteBuffers(1, &VBO);
+}
+void Quad::draw() const
+{
+    glBindVertexArray(VAO);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glBindVertexArray(0);
+}
+
+GBuffer::GBuffer(int width, int height)
+{
+    glGenFramebuffers(1, &gBuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, gBuffer);
+
+    // - position color buffer
+    glGenTextures(1, &position);
+    glBindTexture(GL_TEXTURE_2D, position);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0, GL_RGBA, GL_FLOAT, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, position, 0);
+
+    // - normal color buffer
+    glGenTextures(1, &normal);
+    glBindTexture(GL_TEXTURE_2D, normal);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0, GL_RGBA, GL_FLOAT, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, normal, 0);
+
+    // - color + specular color buffer
+    glGenTextures(1, &albedo);
+    glBindTexture(GL_TEXTURE_2D, albedo);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, albedo, 0);
+
+    glGenRenderbuffers(1, &rboDepth);
+    glBindRenderbuffer(GL_RENDERBUFFER, rboDepth);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, width, height);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rboDepth);
+
+    // - tell OpenGL which color attachments we'll use (of this framebuffer) for rendering
+    unsigned int attachments[3] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2};
+    glDrawBuffers(3, attachments);
+
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::cerr << "Framebuffer not complete!" << std::endl;
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+GBuffer::~GBuffer()
+{
+    glDeleteTextures(1, &position);
+    glDeleteTextures(1, &normal);
+    glDeleteTextures(1, &albedo);
+    glDeleteFramebuffers(1, &gBuffer);
+    glDeleteRenderbuffers(1, &rboDepth);
+}
+void GBuffer::bindForRender() const
+{
+    glBindFramebuffer(GL_FRAMEBUFFER, gBuffer);
+}
+void GBuffer::bindAsTextures() const
+{
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, position);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, normal);
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, albedo);
+}
+void GBuffer::unbind() const
+{
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
 Renderer::Renderer(const std::vector<Mesh> &mesh) : meshes(mesh)
 {
 }
@@ -338,12 +444,12 @@ BaselineRenderer::BaselineRenderer(
 
     if (diffuseMap)
         glUniform1i(pipeline.uniformLocation("textureDiffuse"), 0);
-    if (normalsMap)
-        glUniform1i(pipeline.uniformLocation("textureNormals"), 0);
     if (specularMap)
-        glUniform1i(pipeline.uniformLocation("textureSpecular"), 0);
+        glUniform1i(pipeline.uniformLocation("textureSpecular"), 1);
+    if (normalsMap)
+        glUniform1i(pipeline.uniformLocation("textureNormals"), 2);
     if (heightMap)
-        glUniform1i(pipeline.uniformLocation("textureHeight"), 0);
+        glUniform1i(pipeline.uniformLocation("textureHeight"), 3);
 }
 BaselineRenderer::~BaselineRenderer()
 {
@@ -353,6 +459,14 @@ void BaselineRenderer::setLightPos(glm::vec3 lightPos) const
     glUniform3f(lightPosIndex, lightPos.x, lightPos.y, lightPos.z);
 }
 
+void BaselineRenderer::render(std::shared_ptr<Node> root, glm::mat4 proj, const Camera &camera) const
+{
+    proj = proj * camera.getTransMat();
+    glm::vec3 center = camera.center();
+    root->draw([this, &proj, &center](int idx, glm::mat4 trans) {
+        render(idx, trans, proj, center);
+    });
+}
 void BaselineRenderer::render(int idx, glm::mat4 modelMat, glm::mat4 VPMat, glm::vec3 center) const
 {
     pipeline.use();
@@ -383,15 +497,240 @@ void BaselineRenderer::render(int idx, glm::mat4 modelMat, glm::mat4 VPMat, glm:
     CHECKERROR("Draw Error");
 }
 
+SSAORenderer::SSAORenderer(
+    const std::vector<Mesh> &mesh,
+    int width,
+    int height,
+    bool diffuseMap,
+    bool specularMap,
+    bool normalsMap,
+    bool heightMap)
+    : Renderer(mesh), gBuffer(width, height), quad(width, height),
+      _diffuseMap(diffuseMap), _specularMap(specularMap), _normalsMap(normalsMap), _heightMap(heightMap),
+      _width(width), _height(height)
+{
+    Shader geometryVS("shaders/geometry.vs"s, GL_VERTEX_SHADER);
+    Shader geometryFS("shaders/geometry.fs"s, GL_FRAGMENT_SHADER);
+    geometry.addShader(geometryVS);
+    geometry.addShader(geometryFS);
+    geometry.link();
+
+    geometry.use();
+    WVPIndex = geometry.uniformLocation("WVP");
+    WVIndex = geometry.uniformLocation("WV");
+    modelMatIndex = geometry.uniformLocation("modelMat");
+    shininessIndex = geometry.uniformLocation("shininess");
+    if (diffuseMap)
+        glUniform1i(geometry.uniformLocation("textureDiffuse"), 0);
+    if (specularMap)
+        glUniform1i(geometry.uniformLocation("textureSpecular"), 1);
+    if (normalsMap)
+        glUniform1i(geometry.uniformLocation("textureNormals"), 2);
+    if (heightMap)
+        glUniform1i(geometry.uniformLocation("textureHeight"), 3);
+    CHECKERROR("geometry");
+
+    Shader quadVS("shaders/quad.vs"s, GL_VERTEX_SHADER);
+    Shader SSAOFS("shaders/SSAO.fs"s, GL_FRAGMENT_SHADER);
+    ssao.addShader(quadVS);
+    ssao.addShader(SSAOFS);
+    ssao.link();
+    ssao.use();
+    makeSSAOFBO();
+    makeKernel();
+    makeNoise();
+    glUniform1i(ssao.uniformLocation("texturePosition"), 0);
+    glUniform1i(ssao.uniformLocation("textureNormal"), 1);
+    glUniform1i(ssao.uniformLocation("textureAlbedo"), 2);
+    glUniform1i(ssao.uniformLocation("textureNoise"), 3);
+    glUniform3fv(ssao.uniformLocation("kernel"), 64, kernel.data());
+    projMatIndex = ssao.uniformLocation("projMat");
+    CHECKERROR("SSAO");
+
+    Shader blurFS("shaders/blur.fs"s, GL_FRAGMENT_SHADER);
+    blur.addShader(quadVS);
+    blur.addShader(blurFS);
+    blur.link();
+    blur.use();
+    glUniform1i(blur.uniformLocation("textureSSAO"), 0);
+    makeBlurFBO();
+
+    Shader lightingFS("shaders/lighting.fs"s, GL_FRAGMENT_SHADER);
+    lighting.addShader(quadVS);
+    lighting.addShader(lightingFS);
+    lighting.link();
+
+    lighting.use();
+    glUniform1i(lighting.uniformLocation("texturePosition"), 0);
+    glUniform1i(lighting.uniformLocation("textureNormal"), 1);
+    glUniform1i(lighting.uniformLocation("textureAlbedo"), 2);
+    glUniform1i(lighting.uniformLocation("textureSSAO"), 3);
+    glUniform3f(lighting.uniformLocation("lightAmbient"), 1.0f, 1.0f, 1.0f);
+    glUniform3f(lighting.uniformLocation("lightDiffuse"), 1.0f, 1.0f, 1.0f);
+    glUniform3f(lighting.uniformLocation("lightSpecular"), 1.0f, 1.0f, 1.0f);
+    lightPosIndex = lighting.uniformLocation("lightPos");
+    viewPosIndex = lighting.uniformLocation("viewPos");
+    CHECKERROR("lighting");
+}
+SSAORenderer::~SSAORenderer()
+{
+    glDeleteTextures(1, &noiseTexture);
+}
+void SSAORenderer::setLightPos(glm::vec3 lightPos) const
+{
+    lighting.use();
+    glUniform3f(lightPosIndex, lightPos.x, lightPos.y, lightPos.z);
+}
+void SSAORenderer::render(std::shared_ptr<Node> root, glm::mat4 proj, const Camera &camera) const
+{
+    auto viewMat = camera.getTransMat();
+    geometryPass(root, viewMat, proj);
+    ssaoPass(proj);
+    blurPass();
+    lightingPass(camera.center());
+}
+void SSAORenderer::geometryPass(std::shared_ptr<Node> root, glm::mat4 viewMat, glm::mat4 projMat) const
+{
+    geometry.use();
+    gBuffer.bindForRender();
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    root->draw([this, viewMat, projMat](int idx, glm::mat4 trans) {
+        geometryRender(idx, trans, viewMat, projMat);
+    });
+    gBuffer.unbind();
+}
+void SSAORenderer::geometryRender(int idx, glm::mat4 modelMat, glm::mat4 viewMat, glm::mat4 projMat) const
+{
+    meshes[idx].bindVAO();
+    CHECKERROR("BindVAO Error");
+    if (_diffuseMap)
+        meshes[idx].bindTexture("textureDiffuse");
+    if (_specularMap)
+        meshes[idx].bindTexture("textureSpecular");
+    if (_normalsMap)
+        meshes[idx].bindTexture("textureNormals");
+    if (_heightMap)
+        meshes[idx].bindTexture("textureHeight");
+
+    CHECKERROR("BindTexture Error");
+
+    glUniformMatrix4fv(modelMatIndex, 1, false, glm::value_ptr(modelMat));
+    CHECKERROR("modelMat Error");
+    auto WVMat = viewMat * modelMat;
+    glUniformMatrix4fv(WVIndex, 1, false, glm::value_ptr(WVMat));
+    CHECKERROR("WV Error");
+    auto WVPMat = projMat * WVMat;
+    glUniformMatrix4fv(WVPIndex, 1, false, glm::value_ptr(WVPMat));
+    CHECKERROR("WVPMat Error");
+
+    glUniform1f(shininessIndex, meshes[idx].getFloatParam("shininess"));
+
+    meshes[idx].draw();
+    CHECKERROR("Draw Error");
+}
+void SSAORenderer::ssaoPass(glm::mat4 projMat) const
+{
+    ssao.use();
+    gBuffer.bindAsTextures();
+    glBindFramebuffer(GL_FRAMEBUFFER, ssaoFBO);
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, noiseTexture);
+    glUniformMatrix4fv(projMatIndex, 1, false, glm::value_ptr(projMat));
+    CHECKERROR("projMat Error");
+    quad.draw();
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+void SSAORenderer::blurPass() const
+{
+    blur.use();
+    glBindFramebuffer(GL_FRAMEBUFFER, blurFBO);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, ssaoColorBuffer);
+    quad.draw();
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+void SSAORenderer::lightingPass(glm::vec3 viewPos) const
+{
+    lighting.use();
+    gBuffer.bindAsTextures();
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, blurBuffer);
+    glUniform3f(viewPosIndex, viewPos.x, viewPos.y, viewPos.z);
+    CHECKERROR("viewPos Error");
+    quad.draw();
+}
+void SSAORenderer::makeKernel()
+{
+    std::default_random_engine engine;
+    std::normal_distribution<float> distr{0, 0.5};
+
+    for (int i = 0; i != 64; ++i)
+    {
+        kernel[i * 3] = std::clamp(distr(engine), -1.0f, 1.0f);
+        kernel[i * 3 + 1] = std::clamp(distr(engine), -1.0f, 1.0f);
+        kernel[i * 3 + 2] = std::clamp(distr(engine), 0.0f, 1.0f);
+    };
+    CHECKERROR("makeKernel");
+}
+void SSAORenderer::makeNoise()
+{
+    std::default_random_engine engine;
+    std::normal_distribution<float> distr{0, 0.5};
+    std::array<glm::vec3, 16> noise;
+    for (int i = 0; i != 16; ++i)
+        noise[i] = glm::vec3{
+            std::clamp(distr(engine), -1.0f, 1.0f),
+            std::clamp(distr(engine), -1.0f, 1.0f),
+            0.0};
+    glGenBuffers(1, &noiseTexture);
+    glGenTextures(1, &noiseTexture);
+    glBindTexture(GL_TEXTURE_2D, noiseTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, 4, 4, 0, GL_RGB, GL_FLOAT, noise.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    CHECKERROR("makeNoise");
+}
+void SSAORenderer::makeSSAOFBO()
+{
+    glGenFramebuffers(1, &ssaoFBO);
+    glBindFramebuffer(GL_FRAMEBUFFER, ssaoFBO);
+
+    glGenTextures(1, &ssaoColorBuffer);
+    glBindTexture(GL_TEXTURE_2D, ssaoColorBuffer);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, _width, _height, 0, GL_RED, GL_FLOAT, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, ssaoColorBuffer, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    CHECKERROR("makeSSAOFBO");
+}
+void SSAORenderer::makeBlurFBO()
+{
+    glGenFramebuffers(1, &blurFBO);
+    glBindFramebuffer(GL_FRAMEBUFFER, blurFBO);
+    glGenTextures(1, &blurBuffer);
+    glBindTexture(GL_TEXTURE_2D, blurBuffer);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, _width, _height, 0, GL_RED, GL_FLOAT, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, blurBuffer, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    CHECKERROR("makeBlurFBO");
+}
+
 Scene::Scene(const aiScene *scene, const std::string &directory) : ai_scene(scene), dir(directory)
 {
     int meshCnt = scene->mNumMeshes;
     std::cout << "Load model" << std::endl;
     for (int i = 0; i != meshCnt; ++i)
         meshes.emplace_back(scene->mMeshes[i], this);
-    root = make_unique<Node>(scene->mRootNode);
+    root = make_shared<Node>(scene->mRootNode);
 
-    renderer = make_unique<BaselineRenderer>(meshes, false, false, false, false, "baseline.vs", "baseline.fs");
+    // renderer = make_unique<BaselineRenderer>(meshes, true, true, true, false, "baseline_tangent.vs", "baseline_normals.fs");
+    renderer = make_unique<SSAORenderer>(meshes, 1600, 900, true, false, true, false);
     renderer->setLightPos(glm::vec3{100.0f, 0.0f, -100.0f});
 }
 Scene::~Scene()
@@ -402,11 +741,7 @@ Scene::~Scene()
 
 void Scene::render(glm::mat4 proj, const Camera &camera) const
 {
-    proj = proj * camera.getTransMat();
-    glm::vec3 center = camera.center();
-    root->draw([this, &proj, &center](int idx, glm::mat4 trans) {
-        renderer->render(idx, trans, proj, center);
-    });
+    renderer->render(root, proj, camera);
 }
 
 std::map<std::string, Texture> Scene::loadMaterialTexures(unsigned int index)
@@ -483,7 +818,7 @@ GLuint TextureFromFile(const std::string &path, const std::string &directory, bo
     }
     else
     {
-        std::cerr << "Texture failed to load at path: " << path << std::endl;
+        std::cerr << "Texture failed to load at path: " << filename << std::endl;
         stbi_image_free(data);
     }
 

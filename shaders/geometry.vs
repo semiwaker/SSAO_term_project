@@ -11,14 +11,13 @@ out vec3 normal;
 out vec2 texCoord;
 out mat3 TBN;
 
-uniform vec3 lightPos;
-uniform vec3 viewPos;
 uniform mat4 modelMat;
-uniform mat4 VPMat;
+uniform mat4 WVP;
+uniform mat4 WV;
 
 void main()
 {
-    fragPos = vec3(modelMat *  vec4(position, 1.0));
+    fragPos = (WV *  vec4(position, 1.0)).xyz;
     normal = inNormal;
     texCoord = inTexCoord;
 
@@ -27,5 +26,5 @@ void main()
     vec3 N   = normalize(mat3(modelMat) * inNormal);
     TBN = mat3(T, B, N);
 
-    gl_Position = VPMat * vec4(fragPos, 1.0);
+    gl_Position = WVP * vec4(position, 1.0);
 }

@@ -3,6 +3,7 @@
 Camera::Camera(glm::vec3 cameraCenter, glm::vec3 cameraFacing, glm::vec3 cameraUp, glm::vec3 cameraScale)
     : _center(cameraCenter), _facing(cameraFacing), _up(cameraUp), _scale(cameraScale)
 {
+    _up = glm::cross(glm::cross(_facing, _up), _facing);
 }
 Camera::Camera(glm::vec3 cameraCenter, glm::vec3 cameraTarget, glm::vec3 viewScale)
     : _center(cameraCenter), _scale(viewScale)

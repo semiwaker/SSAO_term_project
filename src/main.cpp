@@ -127,9 +127,9 @@ void prepare()
     Assimp::Importer importer;
     auto ai_scene = importer.ReadFile(
         // "model/house/Old House Files/Old House 2 3D Models.3DS",
-        // "model/dragon/Dragon 2.5_3ds.3ds",
+        "model/dragon/Dragon 2.5_fbx.fbx",
         // "model/Medieval tower/Medieval tower_High_.blend",
-        "model/scifi_gun.obj",
+        // "model/scifi_gun.obj",
         aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_JoinIdenticalVertices | aiProcess_CalcTangentSpace);
     if (!ai_scene)
     {
@@ -139,7 +139,7 @@ void prepare()
     // scene = std::make_unique<Scene>(ai_scene, "model/house/Old House Texture");
     // scene = std::make_unique<Scene>(ai_scene, "model/dragon/textures");
     // scene = std::make_unique<Scene>(ai_scene, "model/Medieval tower/");
-    scene = std::make_unique<Scene>(ai_scene, "model");
+    scene = std::make_unique<Scene>(ai_scene, "model/dragon");
     std::cout << "Model loaded" << std::endl;
 }
 void mainLoop()
@@ -172,6 +172,7 @@ void initWindow()
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+    glfwWindowHint(GLFW_SAMPLES, 4);
 
     window = glfwCreateWindow(windowWidth, windowHeight, "SSAO_Term_Project", NULL, NULL);
     if (!window)
@@ -201,6 +202,7 @@ void initWindow()
     glViewport(0, 0, windowWidth, windowHeight);
     glEnable(GL_DEBUG_OUTPUT);
     glEnable(GL_DEPTH_TEST);
+    glEnable(GL_MULTISAMPLE);
     // glEnable(GL_CULL_FACE);
     // glCullFace(GL_FRONT);
     glDebugMessageCallback(messageCallback, 0);
