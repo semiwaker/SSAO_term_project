@@ -170,6 +170,7 @@ private:
     GLuint position{0};
     GLuint normal{0};
     GLuint albedo{0};
+    GLuint light{0};
     GLuint rboDepth;
 };
 
@@ -184,7 +185,7 @@ public:
     virtual ~Renderer() = default;
 
     virtual void render(std::shared_ptr<Node> root, glm::mat4 proj, const Camera &camera) const = 0;
-    virtual void setLightPos(glm::vec3 lightPos) const = 0;
+    virtual void setLight(glm::vec3 lightPos, glm::vec3 lightDir) const = 0;
 
 protected:
     const std::vector<Mesh> &meshes;
@@ -208,7 +209,7 @@ public:
     ~BaselineRenderer() override;
     void render(std::shared_ptr<Node> root, glm::mat4 proj, const Camera &camera) const override;
     void render(int idx, glm::mat4 modelMat, glm::mat4 VPMat, glm::vec3 center) const;
-    void setLightPos(glm::vec3 lightPos) const override;
+    void setLight(glm::vec3 lightPos, glm::vec3 lightDir) const override;
 
 private:
     Pipeline pipeline;
@@ -239,11 +240,12 @@ public:
     SSAORenderer(BaselineRenderer &&) = delete;
     SSAORenderer &operator=(BaselineRenderer &&) = delete;
     ~SSAORenderer() override;
-    void setLightPos(glm::vec3 lightPos) const override;
+    void setLight(glm::vec3 lightPos, glm::vec3 lightDir) const override;
 
 private:
     void makeSSAOFBO();
     void makeBlurFBO();
+    void makeShadowFBO();
     void makeKernel();
     void makeNoise();
 
@@ -252,11 +254,14 @@ private:
     void geometryRender(int idx, glm::mat4 modelMat, glm::mat4 viewMat, glm::mat4 projMat) const;
     void ssaoPass(glm::mat4 projMat) const;
     void blurPass() const;
+    void shadowPass(std::shared_ptr<Node> root) const;
+    void shadowRender(int idx, glm::mat4 modelMat) const;
     void lightingPass(glm::vec3 viewPos) const;
 
     Pipeline geometry;
     Pipeline ssao;
     Pipeline blur;
+    Pipeline shadow;
     Pipeline lighting;
     Quad quad;
     GBuffer gBuffer;
@@ -264,9 +269,15 @@ private:
     GLuint ssaoColorBuffer;
     GLuint blurFBO;
     GLuint blurBuffer;
+    GLuint shadowFBO;
+    GLuint shadowBuffer;
     GLuint noiseTexture;
     GLint WVPIndex;
     GLint WVIndex;
+    GLint lightMatIndex;
+    GLint lightDirIndex;
+    GLint shadowModelMatIndex;
+    GLint shadowLightMatIndex;
     GLint modelMatIndex;
     GLint projMatIndex;
     GLint lightPosIndex;

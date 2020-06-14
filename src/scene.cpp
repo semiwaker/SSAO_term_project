@@ -12,6 +12,8 @@
 
 using namespace std;
 
+const int shadowMapSize = 4096;
+
 #define DEBUG
 
 #ifdef DEBUG
@@ -371,14 +373,25 @@ GBuffer::GBuffer(int width, int height)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, albedo, 0);
 
+    glGenTextures(1, &light);
+    glBindTexture(GL_TEXTURE_2D, light);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, width, height, 0, GL_RED, GL_FLOAT, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT3, GL_TEXTURE_2D, light, 0);
+
     glGenRenderbuffers(1, &rboDepth);
     glBindRenderbuffer(GL_RENDERBUFFER, rboDepth);
     glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, width, height);
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rboDepth);
 
     // - tell OpenGL which color attachments we'll use (of this framebuffer) for rendering
-    unsigned int attachments[3] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2};
-    glDrawBuffers(3, attachments);
+    unsigned int attachments[4] = {
+        GL_COLOR_ATTACHMENT0,
+        GL_COLOR_ATTACHMENT1,
+        GL_COLOR_ATTACHMENT2,
+        GL_COLOR_ATTACHMENT3};
+    glDrawBuffers(4, attachments);
 
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
         std::cerr << "Framebuffer not complete!" << std::endl;
@@ -389,8 +402,9 @@ GBuffer::~GBuffer()
     glDeleteTextures(1, &position);
     glDeleteTextures(1, &normal);
     glDeleteTextures(1, &albedo);
-    glDeleteFramebuffers(1, &gBuffer);
+    glDeleteTextures(1, &light);
     glDeleteRenderbuffers(1, &rboDepth);
+    glDeleteFramebuffers(1, &gBuffer);
 }
 void GBuffer::bindForRender() const
 {
@@ -405,6 +419,8 @@ void GBuffer::bindAsTextures() const
     glBindTexture(GL_TEXTURE_2D, normal);
     glActiveTexture(GL_TEXTURE2);
     glBindTexture(GL_TEXTURE_2D, albedo);
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, light);
 }
 void GBuffer::unbind() const
 {
@@ -454,7 +470,7 @@ BaselineRenderer::BaselineRenderer(
 BaselineRenderer::~BaselineRenderer()
 {
 }
-void BaselineRenderer::setLightPos(glm::vec3 lightPos) const
+void BaselineRenderer::setLight(glm::vec3 lightPos, glm::vec3 lightDir) const
 {
     glUniform3f(lightPosIndex, lightPos.x, lightPos.y, lightPos.z);
 }
@@ -519,6 +535,8 @@ SSAORenderer::SSAORenderer(
     WVPIndex = geometry.uniformLocation("WVP");
     WVIndex = geometry.uniformLocation("WV");
     modelMatIndex = geometry.uniformLocation("modelMat");
+    lightMatIndex = geometry.uniformLocation("lightMat");
+    lightDirIndex = geometry.uniformLocation("lightDir");
     shininessIndex = geometry.uniformLocation("shininess");
     if (diffuseMap)
         glUniform1i(geometry.uniformLocation("textureDiffuse"), 0);
@@ -528,6 +546,7 @@ SSAORenderer::SSAORenderer(
         glUniform1i(geometry.uniformLocation("textureNormals"), 2);
     if (heightMap)
         glUniform1i(geometry.uniformLocation("textureHeight"), 3);
+    glUniform1i(geometry.uniformLocation("textureShadow"), 4);
     CHECKERROR("geometry");
 
     Shader quadVS("shaders/quad.vs"s, GL_VERTEX_SHADER);
@@ -542,7 +561,8 @@ SSAORenderer::SSAORenderer(
     glUniform1i(ssao.uniformLocation("texturePosition"), 0);
     glUniform1i(ssao.uniformLocation("textureNormal"), 1);
     glUniform1i(ssao.uniformLocation("textureAlbedo"), 2);
-    glUniform1i(ssao.uniformLocation("textureNoise"), 3);
+    glUniform1i(ssao.uniformLocation("textureLight"), 3);
+    glUniform1i(ssao.uniformLocation("textureNoise"), 4);
     glUniform3fv(ssao.uniformLocation("kernel"), 64, kernel.data());
     projMatIndex = ssao.uniformLocation("projMat");
     CHECKERROR("SSAO");
@@ -555,6 +575,16 @@ SSAORenderer::SSAORenderer(
     glUniform1i(blur.uniformLocation("textureSSAO"), 0);
     makeBlurFBO();
 
+    Shader shadowVS("shaders/shadow.vs", GL_VERTEX_SHADER);
+    Shader shadowFS("shaders/shadow.fs", GL_FRAGMENT_SHADER);
+    shadow.addShader(shadowVS);
+    shadow.addShader(shadowFS);
+    shadow.link();
+    shadow.use();
+    makeShadowFBO();
+    shadowModelMatIndex = shadow.uniformLocation("modelMat");
+    shadowLightMatIndex = shadow.uniformLocation("lightMat");
+
     Shader lightingFS("shaders/lighting.fs"s, GL_FRAGMENT_SHADER);
     lighting.addShader(quadVS);
     lighting.addShader(lightingFS);
@@ -564,7 +594,8 @@ SSAORenderer::SSAORenderer(
     glUniform1i(lighting.uniformLocation("texturePosition"), 0);
     glUniform1i(lighting.uniformLocation("textureNormal"), 1);
     glUniform1i(lighting.uniformLocation("textureAlbedo"), 2);
-    glUniform1i(lighting.uniformLocation("textureSSAO"), 3);
+    glUniform1i(lighting.uniformLocation("textureLight"), 3);
+    glUniform1i(lighting.uniformLocation("textureSSAO"), 4);
     glUniform3f(lighting.uniformLocation("lightAmbient"), 1.0f, 1.0f, 1.0f);
     glUniform3f(lighting.uniformLocation("lightDiffuse"), 1.0f, 1.0f, 1.0f);
     glUniform3f(lighting.uniformLocation("lightSpecular"), 1.0f, 1.0f, 1.0f);
@@ -576,14 +607,30 @@ SSAORenderer::~SSAORenderer()
 {
     glDeleteTextures(1, &noiseTexture);
 }
-void SSAORenderer::setLightPos(glm::vec3 lightPos) const
+void SSAORenderer::setLight(glm::vec3 lightPos, glm::vec3 lightDir) const
 {
     lighting.use();
     glUniform3f(lightPosIndex, lightPos.x, lightPos.y, lightPos.z);
+
+    std::default_random_engine engine;
+    std::normal_distribution<float> distr{0, 1};
+    auto randDir = glm::normalize(glm::vec3{distr(engine), distr(engine), distr(engine)});
+    auto look = glm::normalize(lightPos + lightDir);
+    auto lightMat =
+        glm::ortho(-80.0f, 80.0f, -80.0f, 80.0f, 50.0f, 200.0f) *
+        glm::lookAt(lightPos, look, glm::vec3(0.0f, 1.0f, 0.0f));
+    // glm::lookAt(lightPos, look, glm::cross(randDir, look));
+    geometry.use();
+    glUniformMatrix4fv(lightMatIndex, 1, false, glm::value_ptr(lightMat));
+    glUniform3f(lightDirIndex, lightDir.x, lightDir.y, lightDir.z);
+    shadow.use();
+    glUniformMatrix4fv(shadowLightMatIndex, 1, false, glm::value_ptr(lightMat));
+    CHECKERROR("setLight");
 }
 void SSAORenderer::render(std::shared_ptr<Node> root, glm::mat4 proj, const Camera &camera) const
 {
     auto viewMat = camera.getTransMat();
+    shadowPass(root);
     geometryPass(root, viewMat, proj);
     ssaoPass(proj);
     blurPass();
@@ -594,6 +641,8 @@ void SSAORenderer::geometryPass(std::shared_ptr<Node> root, glm::mat4 viewMat, g
     geometry.use();
     gBuffer.bindForRender();
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glActiveTexture(GL_TEXTURE4);
+    glBindTexture(GL_TEXTURE_2D, shadowBuffer);
     root->draw([this, viewMat, projMat](int idx, glm::mat4 trans) {
         geometryRender(idx, trans, viewMat, projMat);
     });
@@ -633,7 +682,7 @@ void SSAORenderer::ssaoPass(glm::mat4 projMat) const
     ssao.use();
     gBuffer.bindAsTextures();
     glBindFramebuffer(GL_FRAMEBUFFER, ssaoFBO);
-    glActiveTexture(GL_TEXTURE3);
+    glActiveTexture(GL_TEXTURE4);
     glBindTexture(GL_TEXTURE_2D, noiseTexture);
     glUniformMatrix4fv(projMatIndex, 1, false, glm::value_ptr(projMat));
     CHECKERROR("projMat Error");
@@ -649,11 +698,36 @@ void SSAORenderer::blurPass() const
     quad.draw();
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
+void SSAORenderer::shadowPass(std::shared_ptr<Node> root) const
+{
+    shadow.use();
+    glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
+    glViewport(0, 0, shadowMapSize, shadowMapSize);
+    glClear(GL_DEPTH_BUFFER_BIT);
+    glCullFace(GL_FRONT);
+    root->draw([this](int idx, glm::mat4 trans) {
+        shadowRender(idx, trans);
+    });
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(0, 0, _width, _height);
+    glCullFace(GL_BACK);
+}
+void SSAORenderer::shadowRender(int idx, glm::mat4 modelMat) const
+{
+    meshes[idx].bindVAO();
+    CHECKERROR("BindVAO Error");
+
+    glUniformMatrix4fv(shadowModelMatIndex, 1, false, glm::value_ptr(modelMat));
+    CHECKERROR("modelMat Error");
+
+    meshes[idx].draw();
+    CHECKERROR("Draw Error");
+}
 void SSAORenderer::lightingPass(glm::vec3 viewPos) const
 {
     lighting.use();
     gBuffer.bindAsTextures();
-    glActiveTexture(GL_TEXTURE3);
+    glActiveTexture(GL_TEXTURE4);
     glBindTexture(GL_TEXTURE_2D, blurBuffer);
     glUniform3f(viewPosIndex, viewPos.x, viewPos.y, viewPos.z);
     CHECKERROR("viewPos Error");
@@ -724,6 +798,25 @@ void SSAORenderer::makeBlurFBO()
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     CHECKERROR("makeBlurFBO");
 }
+void SSAORenderer::makeShadowFBO()
+{
+    glGenFramebuffers(1, &shadowFBO);
+    glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
+    glGenTextures(1, &shadowBuffer);
+    glBindTexture(GL_TEXTURE_2D, shadowBuffer);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, shadowMapSize, shadowMapSize, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    float borderColor[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, shadowBuffer, 0);
+    glDrawBuffer(GL_NONE);
+    glReadBuffer(GL_NONE);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    CHECKERROR("makeShadowFBO");
+}
 
 Scene::Scene(const aiScene *scene, const std::string &directory) : ai_scene(scene), dir(directory)
 {
@@ -735,7 +828,7 @@ Scene::Scene(const aiScene *scene, const std::string &directory) : ai_scene(scen
 
     // renderer = make_unique<BaselineRenderer>(meshes, true, true, true, false, "baseline_tangent.vs", "baseline_normals.fs");
     renderer = make_unique<SSAORenderer>(meshes, 1600, 900, true, false, true, false);
-    renderer->setLightPos(glm::vec3{100.0f, 0.0f, -100.0f});
+    renderer->setLight(glm::vec3{30.0f, 0.0f, -100.0f}, glm::vec3{-0.3f, 0.0f, 1.0f});
 }
 Scene::~Scene()
 {

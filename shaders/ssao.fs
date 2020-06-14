@@ -7,6 +7,7 @@ out float fragColor;
 uniform sampler2D texturePosition;
 uniform sampler2D textureNormal;
 uniform sampler2D textureAlbedo;
+uniform sampler2D textureLight;
 uniform sampler2D textureNoise;
 
 uniform vec3 kernel[64];

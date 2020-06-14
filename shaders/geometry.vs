@@ -10,14 +10,17 @@ out vec3 fragPos;
 out vec3 normal;
 out vec2 texCoord;
 out mat3 TBN;
+out vec4 lightSpacePos;
 
 uniform mat4 modelMat;
 uniform mat4 WVP;
 uniform mat4 WV;
+uniform mat4 lightMat;
 
 void main()
 {
     fragPos = (WV *  vec4(position, 1.0)).xyz;
+    lightSpacePos = lightMat * modelMat * vec4(position,1.0);
     normal = inNormal;
     texCoord = inTexCoord;
 
