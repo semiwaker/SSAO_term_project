@@ -55,7 +55,6 @@ void main()
     vec4 specular = spec * color * vec4(lightSpecular, shininess);
 
     fragColor = ambient + (diffuse + specular) * lighted;
-    // fragColor = vec4(vec3(texture(textureShadow, texCoord).r), 1.0);
-    // fragColor = vec4(vec3(texture(textureShadow, lightSpacePos.xy).r), 1.0);
     // fragColor = lightSpacePos;
+    // fragColor = vec4(vec3(AO), 1.0);
 }

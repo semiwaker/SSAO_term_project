@@ -15,9 +15,9 @@ uniform mat4 projMat;
 
 const vec2 noiseScale = vec2(1600.0, 900.0) / 4.0;
 
-const float radius = 0.5;
+const float radius = 0.001;
 const float bias = 0.0;
-const float occPower = 1.0;
+const float occPower = 2.0;
 
 void main()
 {
@@ -45,5 +45,7 @@ void main()
         occlusion += (sampleDepth >= s.z + bias ? 1.0 : 0.0) * rangeCheck;
     }
     occlusion = 1.0 - (occlusion / 64.0);
+    if (fragPos.z >= 1.0)
+        occlusion = 1.0;
     fragColor = pow(occlusion, occPower);
 }
