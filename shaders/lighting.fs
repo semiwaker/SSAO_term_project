@@ -44,8 +44,6 @@ void main()
     float AO = texture(textureSSAO, texCoord).r;
     float lighted = blurLight();
 
-    AO = 1.0;
-
     vec4 ambient = vec4(lightAmbient, 1.0) * color * AO;
 
     vec3 lightDir = normalize(lightPos - fragPos);
@@ -57,7 +55,7 @@ void main()
     float spec = pow(max(dot(viewDir, reflectDir), 0.0), 1.0);
     vec4 specular = spec * color * vec4(lightSpecular, shininess);
 
-    fragColor = ambient + (diffuse + specular) * lighted;
+    fragColor = ambient + (diffuse + specular) * lighted * 1.3;
     // if (lighted < 0.0) fragColor = ambient;
     // fragColor = lightSpacePos;
     // fragColor = vec4(vec3(texture(shadow, texCoord).r), 1.0);
