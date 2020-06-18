@@ -21,7 +21,11 @@ int windowHeight{900};
 GLFWwindow *window;
 
 // Camera
-Camera camera{glm::vec3{0.0, 0.0, -30.0}, glm::vec3{0.0, 0.0, 0.0}};
+Camera camera{
+    glm::vec3{0.0, -30.0, -30.0},
+    glm::normalize(glm::vec3{0.0, 0.5, 1.0}),
+    glm::vec3{0.0, -1.0, 0.0},
+    glm::vec3{1.0, 1.0, 1.0}};
 
 const float keySensitive = 0.3f;
 const float keyRotateSensitive = 0.01f;
@@ -152,7 +156,7 @@ void mainLoop()
         update();
         fpsCounter.record();
         glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
         scene->render(glm::perspective(
                           glm::radians(45.0f),
                           static_cast<float>(windowWidth) / static_cast<float>(windowHeight),

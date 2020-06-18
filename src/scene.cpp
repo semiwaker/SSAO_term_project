@@ -309,6 +309,10 @@ void Node::draw(DrawFunc func, glm::mat4 trans)
     for (auto &i : children)
         i->draw(func, trans);
 }
+void Node::applyTrans(glm::mat4 trans)
+{
+    transMat = trans * transMat;
+}
 
 Quad::Quad(int width, int height)
 {
@@ -412,7 +416,6 @@ void GBuffer::bindForRender() const
 }
 void GBuffer::bindAsTextures() const
 {
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, position);
     glActiveTexture(GL_TEXTURE1);
@@ -425,6 +428,198 @@ void GBuffer::bindAsTextures() const
 void GBuffer::unbind() const
 {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+SkyBox::SkyBox(const std::string &name, int screenWidth, int screenHeight)
+    : width(screenWidth), height(screenHeight)
+{
+    int width, height, nrComponents;
+    float *data = stbi_loadf(name.c_str(), &width, &height, &nrComponents, 0);
+    if (data)
+    {
+        glGenTextures(1, &hdr);
+        glBindTexture(GL_TEXTURE_2D, hdr);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, width, height, 0, GL_RGB, GL_FLOAT, data);
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        stbi_image_free(data);
+    }
+    else
+    {
+        std::cerr << "Failed to load HDR image." << std::endl;
+    }
+    CHECKERROR("SkyBox HDRMap");
+
+    glGenFramebuffers(1, &FBO);
+    glGenRenderbuffers(1, &RBO);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, FBO);
+    glBindRenderbuffer(GL_RENDERBUFFER, RBO);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, 512, 512);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, RBO);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    CHECKERROR("SkyBox FrameBuffer");
+
+    glGenTextures(1, &cubeMap);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMap);
+    for (unsigned int i = 0; i < 6; ++i)
+    {
+        // note that we store each face with 16 bit floating point values
+        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB16F,
+                     512, 512, 0, GL_RGB, GL_FLOAT, nullptr);
+    }
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    CHECKERROR("SkyBox CubeMap");
+
+    Shader captureVS("shaders/capture.vs", GL_VERTEX_SHADER);
+    Shader captureFS("shaders/capture.fs", GL_FRAGMENT_SHADER);
+    capture.addShader(captureVS);
+    capture.addShader(captureFS);
+    capture.link();
+    capture.use();
+    glUniform1i(capture.uniformLocation("hdr"), 0);
+    captureViewIndex = capture.uniformLocation("view");
+    captureProjIndex = capture.uniformLocation("proj");
+
+    Shader skyboxVS("shaders/skybox.vs", GL_VERTEX_SHADER);
+    Shader skyboxFS("shaders/skybox.fs", GL_FRAGMENT_SHADER);
+    skybox.addShader(skyboxVS);
+    skybox.addShader(skyboxFS);
+    skybox.link();
+    skybox.use();
+    glUniform1i(skybox.uniformLocation("skybox"), 0);
+    renderViewIndex = skybox.uniformLocation("view");
+    renderProjIndex = skybox.uniformLocation("proj");
+
+    CHECKERROR("SkyBox Pipelines");
+
+    float skyboxVertices[] = {
+        -1.0f, 1.0f, -1.0f,
+        -1.0f, -1.0f, -1.0f,
+        1.0f, -1.0f, -1.0f,
+        1.0f, -1.0f, -1.0f,
+        1.0f, 1.0f, -1.0f,
+        -1.0f, 1.0f, -1.0f,
+
+        -1.0f, -1.0f, 1.0f,
+        -1.0f, -1.0f, -1.0f,
+        -1.0f, 1.0f, -1.0f,
+        -1.0f, 1.0f, -1.0f,
+        -1.0f, 1.0f, 1.0f,
+        -1.0f, -1.0f, 1.0f,
+
+        1.0f, -1.0f, -1.0f,
+        1.0f, -1.0f, 1.0f,
+        1.0f, 1.0f, 1.0f,
+        1.0f, 1.0f, 1.0f,
+        1.0f, 1.0f, -1.0f,
+        1.0f, -1.0f, -1.0f,
+
+        -1.0f, -1.0f, 1.0f,
+        -1.0f, 1.0f, 1.0f,
+        1.0f, 1.0f, 1.0f,
+        1.0f, 1.0f, 1.0f,
+        1.0f, -1.0f, 1.0f,
+        -1.0f, -1.0f, 1.0f,
+
+        -1.0f, 1.0f, -1.0f,
+        1.0f, 1.0f, -1.0f,
+        1.0f, 1.0f, 1.0f,
+        1.0f, 1.0f, 1.0f,
+        -1.0f, 1.0f, 1.0f,
+        -1.0f, 1.0f, -1.0f,
+
+        -1.0f, -1.0f, -1.0f,
+        -1.0f, -1.0f, 1.0f,
+        1.0f, -1.0f, -1.0f,
+        1.0f, -1.0f, -1.0f,
+        -1.0f, -1.0f, 1.0f,
+        1.0f, -1.0f, 1.0f};
+
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+
+    glBindVertexArray(VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+
+    glBufferData(GL_ARRAY_BUFFER, 6 * 6 * sizeof(glm::vec3), skyboxVertices, GL_STATIC_DRAW);
+
+    // pos
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void *)0);
+    glBindVertexArray(0);
+    CHECKERROR("SkyBox VAO");
+}
+SkyBox::~SkyBox()
+{
+    glDeleteRenderbuffers(1, &RBO);
+    glDeleteFramebuffers(1, &FBO);
+    glDeleteTextures(1, &hdr);
+    glDeleteTextures(1, &cubeMap);
+    glDeleteBuffers(1, &VBO);
+    glDeleteVertexArrays(1, &VAO);
+}
+void SkyBox::render(glm::mat4 view, glm::mat4 proj) const
+{
+    skybox.use();
+    glUniformMatrix4fv(renderProjIndex, 1, false, glm::value_ptr(proj));
+    glUniformMatrix4fv(renderViewIndex, 1, false, glm::value_ptr(view));
+    glBindVertexArray(VAO);
+    glDepthFunc(GL_LEQUAL);
+    bindCubeMap(0);
+    glDrawArrays(GL_TRIANGLES, 0, 36);
+    glBindVertexArray(0);
+    glDepthFunc(GL_LESS);
+    CHECKERROR("SkyBox Render");
+}
+void SkyBox::prepare(glm::mat4 proj) const
+{
+    glm::mat4 captureProjection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
+    glm::mat4 captureViews[] =
+        {
+            glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)),
+            glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)),
+            glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f)),
+            glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f)),
+            glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, -1.0f, 0.0f)),
+            glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, -1.0f, 0.0f))};
+
+    // convert HDR equirectangular environment map to cubemap equivalent
+    capture.use();
+    glUniformMatrix4fv(captureProjIndex, 1, false, glm::value_ptr(proj));
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, hdr);
+
+    glViewport(0, 0, 512, 512);
+    glBindFramebuffer(GL_FRAMEBUFFER, FBO);
+    glBindVertexArray(VAO);
+    for (unsigned int i = 0; i < 6; ++i)
+    {
+        glUniformMatrix4fv(captureViewIndex, 1, false, glm::value_ptr(captureViews[i]));
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                               GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, cubeMap, 0);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+    }
+    glBindVertexArray(0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(0, 0, width, height);
+    CHECKERROR("SkyBox Prepare");
+}
+void SkyBox::bindCubeMap(int pos) const
+{
+    glActiveTexture(GL_TEXTURE0 + pos);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMap);
+    CHECKERROR("SkyBox bindCubeMap");
 }
 
 Renderer::Renderer(const std::vector<Mesh> &mesh) : meshes(mesh)
@@ -521,7 +716,8 @@ SSAORenderer::SSAORenderer(
     bool specularMap,
     bool normalsMap,
     bool heightMap)
-    : Renderer(mesh), gBuffer(width, height), quad(width, height),
+    : Renderer(mesh),
+      gBuffer(width, height), quad(width, height), skybox("model/table_mountain_1_2k.hdr", width, height),
       _diffuseMap(diffuseMap), _specularMap(specularMap), _normalsMap(normalsMap), _heightMap(heightMap),
       _width(width), _height(height)
 {
@@ -602,6 +798,14 @@ SSAORenderer::SSAORenderer(
     lightPosIndex = lighting.uniformLocation("lightPos");
     viewPosIndex = lighting.uniformLocation("viewPos");
     CHECKERROR("lighting");
+
+    Shader stencilVS("shaders/stencil.vs", GL_VERTEX_SHADER);
+    Shader stencilFS("shaders/stencil.fs", GL_FRAGMENT_SHADER);
+    stencil.addShader(stencilVS);
+    stencil.addShader(stencilFS);
+    stencil.link();
+    stencil.use();
+    stencilWVPIndex = stencil.uniformLocation("WVP");
 }
 SSAORenderer::~SSAORenderer()
 {
@@ -630,10 +834,13 @@ void SSAORenderer::setLight(glm::vec3 lightPos, glm::vec3 lightDir) const
 void SSAORenderer::render(std::shared_ptr<Node> root, glm::mat4 proj, const Camera &camera) const
 {
     auto viewMat = camera.getTransMat();
+    skybox.prepare(proj);
+    skybox.render(viewMat, proj);
     shadowPass(root);
     geometryPass(root, viewMat, proj);
     ssaoPass(proj);
     blurPass();
+    stencilPass(root, viewMat, proj);
     lightingPass(camera.center());
 }
 void SSAORenderer::geometryPass(std::shared_ptr<Node> root, glm::mat4 viewMat, glm::mat4 projMat) const
@@ -682,6 +889,7 @@ void SSAORenderer::ssaoPass(glm::mat4 projMat) const
     ssao.use();
     gBuffer.bindAsTextures();
     glBindFramebuffer(GL_FRAMEBUFFER, ssaoFBO);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glActiveTexture(GL_TEXTURE4);
     glBindTexture(GL_TEXTURE_2D, noiseTexture);
     glUniformMatrix4fv(projMatIndex, 1, false, glm::value_ptr(projMat));
@@ -695,6 +903,7 @@ void SSAORenderer::blurPass() const
     glBindFramebuffer(GL_FRAMEBUFFER, blurFBO);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, ssaoColorBuffer);
+    glClear(GL_COLOR_BUFFER_BIT);
     quad.draw();
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
@@ -727,16 +936,46 @@ void SSAORenderer::lightingPass(glm::vec3 viewPos) const
 {
     lighting.use();
     gBuffer.bindAsTextures();
+    glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+    glStencilFunc(GL_EQUAL, 1, 0xFF);
     glActiveTexture(GL_TEXTURE4);
     glBindTexture(GL_TEXTURE_2D, blurBuffer);
     glUniform3f(viewPosIndex, viewPos.x, viewPos.y, viewPos.z);
     CHECKERROR("viewPos Error");
     quad.draw();
+    glDisable(GL_STENCIL_TEST);
 }
+void SSAORenderer::stencilPass(std::shared_ptr<Node> root, glm::mat4 viewMat, glm::mat4 projMat) const
+{
+    stencil.use();
+    glDrawBuffer(GL_NONE);
+    glEnable(GL_STENCIL_TEST);
+    glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+    glStencilFunc(GL_ALWAYS, 1, 0xFF);
+    glStencilMask(0xFF);
+    glClear(GL_STENCIL_BUFFER_BIT);
+    root->draw([this, viewMat, projMat](int idx, glm::mat4 trans) {
+        stencilRender(idx, trans, viewMat, projMat);
+    });
+    glDrawBuffer(GL_BACK);
+    glStencilMask(0x0);
+}
+void SSAORenderer::stencilRender(int idx, glm::mat4 modelMat, glm::mat4 viewMat, glm::mat4 projMat) const
+{
+    meshes[idx].bindVAO();
+    CHECKERROR("BindVAO Error");
+    auto WVPMat = projMat * viewMat * modelMat;
+    glUniformMatrix4fv(stencilWVPIndex, 1, false, glm::value_ptr(WVPMat));
+    CHECKERROR("WVPMat Error");
+
+    meshes[idx].draw();
+    CHECKERROR("Draw Error");
+}
+
 void SSAORenderer::makeKernel()
 {
     std::default_random_engine engine;
-    std::normal_distribution<float> distr{0, 0.5};
+    std::normal_distribution<float> distr{0, 0.2f};
 
     for (int i = 0; i != 64; ++i)
     {
@@ -825,10 +1064,12 @@ Scene::Scene(const aiScene *scene, const std::string &directory) : ai_scene(scen
     for (int i = 0; i != meshCnt; ++i)
         meshes.emplace_back(scene->mMeshes[i], this);
     root = make_shared<Node>(scene->mRootNode);
+    root->applyTrans(
+        glm::rotate(glm::identity<glm::mat4>(), glm::radians(-90.0f), glm::vec3(1.0, 0.0, 0.0)));
 
     // renderer = make_unique<BaselineRenderer>(meshes, true, true, true, false, "baseline_tangent.vs", "baseline_normals.fs");
     renderer = make_unique<SSAORenderer>(meshes, 1600, 900, true, false, true, false);
-    renderer->setLight(glm::vec3{30.0f, 0.0f, -100.0f}, glm::vec3{-0.3f, 0.0f, 1.0f});
+    renderer->setLight(glm::vec3{50.0f, -100.0f, 0.0f}, glm::vec3{-0.5f, 1.0f, 0.0f});
 }
 Scene::~Scene()
 {

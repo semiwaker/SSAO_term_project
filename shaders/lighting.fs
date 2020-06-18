@@ -55,6 +55,7 @@ void main()
     vec4 specular = spec * color * vec4(lightSpecular, shininess);
 
     fragColor = ambient + (diffuse + specular) * lighted;
+    // if (lighted < 0.0) fragColor = ambient;
     // fragColor = lightSpacePos;
     // fragColor = vec4(vec3(AO), 1.0);
 }

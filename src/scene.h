@@ -126,6 +126,7 @@ public:
     using DrawFunc = std::function<void(int, glm::mat4)>;
 
     void draw(DrawFunc func);
+    void applyTrans(glm::mat4 trans);
 
 private:
     void draw(DrawFunc func, glm::mat4 trans);
@@ -172,6 +173,37 @@ private:
     GLuint albedo{0};
     GLuint light{0};
     GLuint rboDepth;
+};
+
+class SkyBox
+{
+public:
+    SkyBox(const std::string &file, int screenWidth, int screenHeight);
+    SkyBox(const SkyBox &) = delete;
+    SkyBox &operator=(const SkyBox &) = delete;
+    SkyBox(SkyBox &&) = delete;
+    SkyBox &operator=(SkyBox &&) = delete;
+    ~SkyBox();
+
+    void render(glm::mat4 view, glm::mat4 proj) const;
+    void prepare(glm::mat4 proj) const;
+    void bindCubeMap(int pos) const;
+
+private:
+    Pipeline capture;
+    Pipeline skybox;
+    GLuint FBO;
+    GLuint RBO;
+    GLuint hdr;
+    GLuint cubeMap;
+    GLuint VAO;
+    GLuint VBO;
+    GLuint captureViewIndex;
+    GLuint captureProjIndex;
+    GLuint renderViewIndex;
+    GLuint renderProjIndex;
+    int width;
+    int height;
 };
 
 class Renderer
@@ -257,13 +289,17 @@ private:
     void shadowPass(std::shared_ptr<Node> root) const;
     void shadowRender(int idx, glm::mat4 modelMat) const;
     void lightingPass(glm::vec3 viewPos) const;
+    void stencilPass(std::shared_ptr<Node> root, glm::mat4 viewMat, glm::mat4 projMat) const;
+    void stencilRender(int idx, glm::mat4 modelMat, glm::mat4 viewMat, glm::mat4 projMat) const;
 
     Pipeline geometry;
     Pipeline ssao;
     Pipeline blur;
     Pipeline shadow;
     Pipeline lighting;
+    Pipeline stencil;
     Quad quad;
+    SkyBox skybox;
     GBuffer gBuffer;
     GLuint ssaoFBO;
     GLuint ssaoColorBuffer;
@@ -284,6 +320,7 @@ private:
     GLint viewPosIndex;
     GLint shininessIndex;
     GLint shininessStrengthIndex;
+    GLint stencilWVPIndex;
     bool _diffuseMap{false};
     bool _specularMap{false};
     bool _normalsMap{false};
