@@ -10,5 +10,5 @@ uniform mat4 WVP;
 
 void main()
 {
-    gl_Position = WVP * vec4(position - inNormal * 0.01, 1.0);
+    gl_Position = WVP * vec4(position - inNormal * 0.03, 1.0);
 }

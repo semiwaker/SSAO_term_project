@@ -8,7 +8,8 @@ uniform sampler2D texturePosition;
 uniform sampler2D textureNormal;
 uniform sampler2D textureAlbedo;
 uniform sampler2D textureLight;
-uniform sampler2D textureSSAO;
+uniform sampler2D textureDirect;
+uniform sampler2D textureIndirect;
 
 // uniform sampler2D shadow;
 
@@ -32,7 +33,21 @@ float blurLight()
             result += texture(textureLight, texCoord + offset).r;
         }
     }
-    return result / (9.0 * 9.0);
+    return result / (7.0 * 7.0);
+}
+vec3 blurIndirect()
+{
+    vec2 texelSize = 1.0 / vec2(textureSize(textureIndirect, 0));
+    vec3 result = vec3(0.0);
+    for (int x = -3; x < 3; ++x)
+    {
+        for (int y = -3; y < 3; ++y)
+        {
+            vec2 offset = vec2(float(x), float(y)) * texelSize;
+            result += texture(textureIndirect, texCoord + offset).rgb;
+        }
+    }
+    return result / (7.0 * 7.0);
 }
 
 void main()
@@ -41,7 +56,8 @@ void main()
     vec3 norm    = texture(textureNormal, texCoord).rgb;
     vec4 color = vec4(texture(textureAlbedo, texCoord).rgb, 1.0);
     float shininess = texture(textureAlbedo, texCoord).a * 10.0;
-    float AO = texture(textureSSAO, texCoord).r;
+    float AO = texture(textureDirect, texCoord).r;
+    vec4 bounce = vec4(blurIndirect(), 1.0);
     float lighted = blurLight();
 
     vec4 ambient = vec4(lightAmbient, 1.0) * color * AO;
@@ -55,9 +71,9 @@ void main()
     float spec = pow(max(dot(viewDir, reflectDir), 0.0), 1.0);
     vec4 specular = spec * color * vec4(lightSpecular, shininess);
 
-    fragColor = ambient + (diffuse + specular) * lighted * 1.3;
-    // if (lighted < 0.0) fragColor = ambient;
-    // fragColor = lightSpacePos;
+    // fragColor = ambient + (diffuse + specular) * lighted;
+    fragColor = ambient + (diffuse + specular) * lighted + bounce;
+    // fragColor = bounce;
     // fragColor = vec4(vec3(texture(shadow, texCoord).r), 1.0);
-    // fragColor = vec4(vec3(lighted), 1.0);
+    // fragColor = vec4(vec3(AO), 1.0);
 }

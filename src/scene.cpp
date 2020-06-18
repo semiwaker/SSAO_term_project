@@ -15,7 +15,7 @@ using namespace std;
 
 const int shadowMapSize = 4096;
 
-#define DEBUG
+// #define DEBUG
 
 #ifdef DEBUG
 #define CHECKERROR(msg)                \
@@ -645,7 +645,7 @@ void BaselineRenderer::render(int idx, glm::mat4 modelMat, glm::mat4 VPMat, glm:
     CHECKERROR("Draw Error");
 }
 
-SSAORenderer::SSAORenderer(
+SSDORenderer::SSDORenderer(
     const std::vector<Mesh> &mesh,
     int width,
     int height,
@@ -683,22 +683,39 @@ SSAORenderer::SSAORenderer(
     CHECKERROR("geometry");
 
     Shader quadVS("shaders/quad.vs"s, GL_VERTEX_SHADER);
-    Shader SSAOFS("shaders/SSAO.fs"s, GL_FRAGMENT_SHADER);
-    ssao.addShader(quadVS);
-    ssao.addShader(SSAOFS);
-    ssao.link();
-    ssao.use();
-    makeSSAOFBO();
+    Shader SSDOFS("shaders/SSDO.fs"s, GL_FRAGMENT_SHADER);
+    ssdoDirect.addShader(quadVS);
+    ssdoDirect.addShader(SSDOFS);
+    ssdoDirect.link();
+    ssdoDirect.use();
+    makeSSDODirectFBO();
     makeKernel();
     makeNoise();
-    glUniform1i(ssao.uniformLocation("texturePosition"), 0);
-    glUniform1i(ssao.uniformLocation("textureNormal"), 1);
-    glUniform1i(ssao.uniformLocation("textureAlbedo"), 2);
-    glUniform1i(ssao.uniformLocation("textureLight"), 3);
-    glUniform1i(ssao.uniformLocation("textureNoise"), 4);
-    glUniform3fv(ssao.uniformLocation("kernel"), 64, kernel.data());
-    projMatIndex = ssao.uniformLocation("projMat");
-    CHECKERROR("SSAO");
+    glUniform1i(ssdoDirect.uniformLocation("texturePosition"), 0);
+    glUniform1i(ssdoDirect.uniformLocation("textureNormal"), 1);
+    glUniform1i(ssdoDirect.uniformLocation("textureAlbedo"), 2);
+    glUniform1i(ssdoDirect.uniformLocation("textureLight"), 3);
+    glUniform1i(ssdoDirect.uniformLocation("textureNoise"), 4);
+    glUniform1i(ssdoDirect.uniformLocation("textureHDR"), 5);
+    glUniform3fv(ssdoDirect.uniformLocation("kernel"), 64, kernel.data());
+    projMatIndex = ssdoDirect.uniformLocation("projMat");
+    viewMatIndex = ssdoDirect.uniformLocation("viewMat");
+    CHECKERROR("Direct");
+
+    Shader IndirectFS("shaders/indirect.fs"s, GL_FRAGMENT_SHADER);
+    ssdoIndirect.addShader(quadVS);
+    ssdoIndirect.addShader(IndirectFS);
+    ssdoIndirect.link();
+    ssdoIndirect.use();
+    makeSSDOIndirectFBO();
+    glUniform1i(ssdoIndirect.uniformLocation("texturePosition"), 0);
+    glUniform1i(ssdoIndirect.uniformLocation("textureNormal"), 1);
+    glUniform1i(ssdoIndirect.uniformLocation("textureAlbedo"), 2);
+    glUniform1i(ssdoIndirect.uniformLocation("textureLight"), 3);
+    glUniform1i(ssdoIndirect.uniformLocation("textureNoise"), 4);
+    glUniform3fv(ssdoIndirect.uniformLocation("kernel"), 64, kernel.data());
+    indProjMatIndex = ssdoIndirect.uniformLocation("projMat");
+    CHECKERROR("Indirect");
 
     Shader blurFS("shaders/blur.fs"s, GL_FRAGMENT_SHADER);
     blur.addShader(quadVS);
@@ -728,7 +745,8 @@ SSAORenderer::SSAORenderer(
     glUniform1i(lighting.uniformLocation("textureNormal"), 1);
     glUniform1i(lighting.uniformLocation("textureAlbedo"), 2);
     glUniform1i(lighting.uniformLocation("textureLight"), 3);
-    glUniform1i(lighting.uniformLocation("textureSSAO"), 4);
+    glUniform1i(lighting.uniformLocation("textureDirect"), 4);
+    glUniform1i(lighting.uniformLocation("textureIndirect"), 5);
     glUniform3f(lighting.uniformLocation("lightAmbient"), 1.0f, 1.0f, 1.0f);
     glUniform3f(lighting.uniformLocation("lightDiffuse"), 1.0f, 1.0f, 1.0f);
     glUniform3f(lighting.uniformLocation("lightSpecular"), 1.0f, 1.0f, 1.0f);
@@ -744,11 +762,11 @@ SSAORenderer::SSAORenderer(
     stencil.use();
     stencilWVPIndex = stencil.uniformLocation("WVP");
 }
-SSAORenderer::~SSAORenderer()
+SSDORenderer::~SSDORenderer()
 {
     glDeleteTextures(1, &noiseTexture);
 }
-void SSAORenderer::setLight(glm::vec3 lightPos, glm::vec3 lightDir) const
+void SSDORenderer::setLight(glm::vec3 lightPos, glm::vec3 lightDir) const
 {
     lighting.use();
     glUniform3f(lightPosIndex, lightPos.x, lightPos.y, lightPos.z);
@@ -769,18 +787,19 @@ void SSAORenderer::setLight(glm::vec3 lightPos, glm::vec3 lightDir) const
     glUniformMatrix4fv(shadowLightMatIndex, 1, false, glm::value_ptr(lightMat));
     CHECKERROR("setLight");
 }
-void SSAORenderer::render(std::shared_ptr<Node> root, glm::mat4 proj, const Camera &camera) const
+void SSDORenderer::render(std::shared_ptr<Node> root, glm::mat4 proj, const Camera &camera) const
 {
     auto viewMat = camera.getTransMat();
     skybox.render(viewMat, proj);
     shadowPass(root);
     geometryPass(root, viewMat, proj);
-    ssaoPass(proj);
+    ssdoDirectPass(viewMat, proj);
     blurPass();
     stencilPass(root, viewMat, proj);
+    ssdoIndirectPass(proj);
     lightingPass(camera.center());
 }
-void SSAORenderer::geometryPass(std::shared_ptr<Node> root, glm::mat4 viewMat, glm::mat4 projMat) const
+void SSDORenderer::geometryPass(std::shared_ptr<Node> root, glm::mat4 viewMat, glm::mat4 projMat) const
 {
     geometry.use();
     gBuffer.bindForRender();
@@ -792,7 +811,7 @@ void SSAORenderer::geometryPass(std::shared_ptr<Node> root, glm::mat4 viewMat, g
     });
     gBuffer.unbind();
 }
-void SSAORenderer::geometryRender(int idx, glm::mat4 modelMat, glm::mat4 viewMat, glm::mat4 projMat) const
+void SSDORenderer::geometryRender(int idx, glm::mat4 modelMat, glm::mat4 viewMat, glm::mat4 projMat) const
 {
     meshes[idx].bindVAO();
     CHECKERROR("BindVAO Error");
@@ -821,30 +840,45 @@ void SSAORenderer::geometryRender(int idx, glm::mat4 modelMat, glm::mat4 viewMat
     meshes[idx].draw();
     CHECKERROR("Draw Error");
 }
-void SSAORenderer::ssaoPass(glm::mat4 projMat) const
+void SSDORenderer::ssdoDirectPass(glm::mat4 viewMat, glm::mat4 projMat) const
 {
-    ssao.use();
+    ssdoDirect.use();
     gBuffer.bindAsTextures();
-    glBindFramebuffer(GL_FRAMEBUFFER, ssaoFBO);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glBindFramebuffer(GL_FRAMEBUFFER, directFBO);
+    glClear(GL_COLOR_BUFFER_BIT);
     glActiveTexture(GL_TEXTURE4);
     glBindTexture(GL_TEXTURE_2D, noiseTexture);
+    skybox.bind(5);
     glUniformMatrix4fv(projMatIndex, 1, false, glm::value_ptr(projMat));
+    glUniformMatrix4fv(viewMatIndex, 1, false, glm::value_ptr(viewMat));
     CHECKERROR("projMat Error");
     quad.draw();
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
-void SSAORenderer::blurPass() const
+void SSDORenderer::ssdoIndirectPass(glm::mat4 projMat) const
+{
+    ssdoIndirect.use();
+    gBuffer.bindAsTextures();
+    glBindFramebuffer(GL_FRAMEBUFFER, indirectFBO);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glActiveTexture(GL_TEXTURE4);
+    glBindTexture(GL_TEXTURE_2D, noiseTexture);
+    glUniformMatrix4fv(indProjMatIndex, 1, false, glm::value_ptr(projMat));
+    CHECKERROR("projMat Error");
+    quad.draw();
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+void SSDORenderer::blurPass() const
 {
     blur.use();
     glBindFramebuffer(GL_FRAMEBUFFER, blurFBO);
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, ssaoColorBuffer);
+    glBindTexture(GL_TEXTURE_2D, directBuffer);
     glClear(GL_COLOR_BUFFER_BIT);
     quad.draw();
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
-void SSAORenderer::shadowPass(std::shared_ptr<Node> root) const
+void SSDORenderer::shadowPass(std::shared_ptr<Node> root) const
 {
     shadow.use();
     glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
@@ -858,7 +892,7 @@ void SSAORenderer::shadowPass(std::shared_ptr<Node> root) const
     glViewport(0, 0, _width, _height);
     glCullFace(GL_BACK);
 }
-void SSAORenderer::shadowRender(int idx, glm::mat4 modelMat) const
+void SSDORenderer::shadowRender(int idx, glm::mat4 modelMat) const
 {
     meshes[idx].bindVAO();
     CHECKERROR("BindVAO Error");
@@ -869,7 +903,7 @@ void SSAORenderer::shadowRender(int idx, glm::mat4 modelMat) const
     meshes[idx].draw();
     CHECKERROR("Draw Error");
 }
-void SSAORenderer::lightingPass(glm::vec3 viewPos) const
+void SSDORenderer::lightingPass(glm::vec3 viewPos) const
 {
     lighting.use();
     gBuffer.bindAsTextures();
@@ -877,6 +911,8 @@ void SSAORenderer::lightingPass(glm::vec3 viewPos) const
     glStencilFunc(GL_EQUAL, 1, 0xFF);
     glActiveTexture(GL_TEXTURE4);
     glBindTexture(GL_TEXTURE_2D, blurBuffer);
+    glActiveTexture(GL_TEXTURE5);
+    glBindTexture(GL_TEXTURE_2D, indirectBuffer);
     glUniform3f(viewPosIndex, viewPos.x, viewPos.y, viewPos.z);
 
     // glActiveTexture(GL_TEXTURE5);
@@ -887,7 +923,7 @@ void SSAORenderer::lightingPass(glm::vec3 viewPos) const
     quad.draw();
     glDisable(GL_STENCIL_TEST);
 }
-void SSAORenderer::stencilPass(std::shared_ptr<Node> root, glm::mat4 viewMat, glm::mat4 projMat) const
+void SSDORenderer::stencilPass(std::shared_ptr<Node> root, glm::mat4 viewMat, glm::mat4 projMat) const
 {
     stencil.use();
     glDrawBuffer(GL_NONE);
@@ -902,7 +938,7 @@ void SSAORenderer::stencilPass(std::shared_ptr<Node> root, glm::mat4 viewMat, gl
     glDrawBuffer(GL_BACK);
     glStencilMask(0x0);
 }
-void SSAORenderer::stencilRender(int idx, glm::mat4 modelMat, glm::mat4 viewMat, glm::mat4 projMat) const
+void SSDORenderer::stencilRender(int idx, glm::mat4 modelMat, glm::mat4 viewMat, glm::mat4 projMat) const
 {
     meshes[idx].bindVAO();
     CHECKERROR("BindVAO Error");
@@ -914,28 +950,33 @@ void SSAORenderer::stencilRender(int idx, glm::mat4 modelMat, glm::mat4 viewMat,
     CHECKERROR("Draw Error");
 }
 
-void SSAORenderer::makeKernel()
+void SSDORenderer::makeKernel()
 {
     std::default_random_engine engine;
-    std::normal_distribution<float> distr{0, 0.2f};
+    std::uniform_real_distribution<float> distr{-1.0f, 1.0f};
+    std::uniform_real_distribution<float> distrz{0.0f, 1.0f};
+    // std::normal_distribution<float> distr{0, 0.2f};
+    // std::normal_distribution<float> distrz{0.5f, 0.2f};
 
     for (int i = 0; i != 64; ++i)
     {
-        kernel[i * 3] = std::clamp(distr(engine), -1.0f, 1.0f);
-        kernel[i * 3 + 1] = std::clamp(distr(engine), -1.0f, 1.0f);
-        kernel[i * 3 + 2] = std::clamp(distr(engine), 0.0f, 1.0f);
+        float scale = static_cast<float>(i) / 64.0f;
+        float v = 0.1f + 0.9f * scale * scale;
+        kernel[i * 3] = distr(engine) * v;
+        kernel[i * 3 + 1] = distr(engine) * v;
+        kernel[i * 3 + 2] = distrz(engine) * v;
     };
     CHECKERROR("makeKernel");
 }
-void SSAORenderer::makeNoise()
+void SSDORenderer::makeNoise()
 {
     std::default_random_engine engine;
-    std::normal_distribution<float> distr{0, 0.5};
+    std::uniform_real_distribution<float> distr{-1.0f, 1.0f};
     std::array<glm::vec3, 16> noise;
     for (int i = 0; i != 16; ++i)
         noise[i] = glm::vec3{
-            std::clamp(distr(engine), -1.0f, 1.0f),
-            std::clamp(distr(engine), -1.0f, 1.0f),
+            distr(engine),
+            distr(engine),
             0.0};
     glGenBuffers(1, &noiseTexture);
     glGenTextures(1, &noiseTexture);
@@ -947,24 +988,41 @@ void SSAORenderer::makeNoise()
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
     CHECKERROR("makeNoise");
 }
-void SSAORenderer::makeSSAOFBO()
+void SSDORenderer::makeSSDODirectFBO()
 {
-    glGenFramebuffers(1, &ssaoFBO);
-    glBindFramebuffer(GL_FRAMEBUFFER, ssaoFBO);
+    glGenFramebuffers(1, &directFBO);
+    glBindFramebuffer(GL_FRAMEBUFFER, directFBO);
 
-    glGenTextures(1, &ssaoColorBuffer);
-    glBindTexture(GL_TEXTURE_2D, ssaoColorBuffer);
+    glGenTextures(1, &directBuffer);
+    glBindTexture(GL_TEXTURE_2D, directBuffer);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, _width, _height, 0, GL_RED, GL_FLOAT, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, ssaoColorBuffer, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, directBuffer, 0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    CHECKERROR("makeSSAOFBO");
+    CHECKERROR("makeSSDODirectFBO");
 }
-void SSAORenderer::makeBlurFBO()
+void SSDORenderer::makeSSDOIndirectFBO()
+{
+    glGenFramebuffers(1, &indirectFBO);
+    glBindFramebuffer(GL_FRAMEBUFFER, indirectFBO);
+
+    glGenTextures(1, &indirectBuffer);
+    glBindTexture(GL_TEXTURE_2D, indirectBuffer);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, _width, _height, 0, GL_RGBA, GL_FLOAT, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, indirectBuffer, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    CHECKERROR("makeSSDOIndirectFBO");
+}
+void SSDORenderer::makeBlurFBO()
 {
     glGenFramebuffers(1, &blurFBO);
     glBindFramebuffer(GL_FRAMEBUFFER, blurFBO);
@@ -979,7 +1037,7 @@ void SSAORenderer::makeBlurFBO()
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     CHECKERROR("makeBlurFBO");
 }
-void SSAORenderer::makeShadowFBO()
+void SSDORenderer::makeShadowFBO()
 {
     glGenFramebuffers(1, &shadowFBO);
     glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
@@ -1010,7 +1068,7 @@ Scene::Scene(const aiScene *scene, const std::string &directory) : ai_scene(scen
         glm::rotate(glm::identity<glm::mat4>(), glm::radians(-90.0f), glm::vec3(1.0, 0.0, 0.0)));
 
     // renderer = make_unique<BaselineRenderer>(meshes, true, true, true, false, "baseline_tangent.vs", "baseline_normals.fs");
-    renderer = make_unique<SSAORenderer>(meshes, 1600, 900, true, false, true, false);
+    renderer = make_unique<SSDORenderer>(meshes, 1600, 900, true, false, true, false);
     renderer->setLight(glm::vec3{50.0f, -100.0f, 100.0f}, glm::vec3{-0.5f, 1.0f, -1.0f});
 }
 Scene::~Scene()

@@ -10,13 +10,13 @@ void main()
 {
     vec2 texelSize = 1.0 / vec2(textureSize(textureSSAO, 0));
     float result = 0.0;
-    for (int x = -2; x < 2; ++x)
+    for (int x = -3; x < 3; ++x)
     {
-        for (int y = -2; y < 2; ++y)
+        for (int y = -3; y < 3; ++y)
         {
             vec2 offset = vec2(float(x), float(y)) * texelSize;
             result += texture(textureSSAO, texCoord + offset).r;
         }
     }
-    fragColor = result / (4.0 * 4.0);
+    fragColor = result / (7.0 * 7.0);
 }

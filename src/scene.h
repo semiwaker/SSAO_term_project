@@ -249,10 +249,10 @@ private:
     bool _normalsMap{false};
     bool _heightMap{false};
 };
-class SSAORenderer : public Renderer
+class SSDORenderer : public Renderer
 {
 public:
-    SSAORenderer(
+    SSDORenderer(
         const std::vector<Mesh> &mesh,
         int width,
         int height,
@@ -260,15 +260,16 @@ public:
         bool specularMap = false,
         bool normalsMap = false,
         bool heightMap = false);
-    SSAORenderer(const BaselineRenderer &) = delete;
-    SSAORenderer &operator=(const BaselineRenderer &) = delete;
-    SSAORenderer(BaselineRenderer &&) = delete;
-    SSAORenderer &operator=(BaselineRenderer &&) = delete;
-    ~SSAORenderer() override;
+    SSDORenderer(const BaselineRenderer &) = delete;
+    SSDORenderer &operator=(const BaselineRenderer &) = delete;
+    SSDORenderer(BaselineRenderer &&) = delete;
+    SSDORenderer &operator=(BaselineRenderer &&) = delete;
+    ~SSDORenderer() override;
     void setLight(glm::vec3 lightPos, glm::vec3 lightDir) const override;
 
 private:
-    void makeSSAOFBO();
+    void makeSSDODirectFBO();
+    void makeSSDOIndirectFBO();
     void makeBlurFBO();
     void makeShadowFBO();
     void makeKernel();
@@ -277,7 +278,8 @@ private:
     void render(std::shared_ptr<Node> root, glm::mat4 proj, const Camera &camera) const override;
     void geometryPass(std::shared_ptr<Node> root, glm::mat4 viewMat, glm::mat4 projMat) const;
     void geometryRender(int idx, glm::mat4 modelMat, glm::mat4 viewMat, glm::mat4 projMat) const;
-    void ssaoPass(glm::mat4 projMat) const;
+    void ssdoDirectPass(glm::mat4 viewMat, glm::mat4 projMat) const;
+    void ssdoIndirectPass(glm::mat4 projMat) const;
     void blurPass() const;
     void shadowPass(std::shared_ptr<Node> root) const;
     void shadowRender(int idx, glm::mat4 modelMat) const;
@@ -286,7 +288,8 @@ private:
     void stencilRender(int idx, glm::mat4 modelMat, glm::mat4 viewMat, glm::mat4 projMat) const;
 
     Pipeline geometry;
-    Pipeline ssao;
+    Pipeline ssdoDirect;
+    Pipeline ssdoIndirect;
     Pipeline blur;
     Pipeline shadow;
     Pipeline lighting;
@@ -294,8 +297,10 @@ private:
     Quad quad;
     SkyBox skybox;
     GBuffer gBuffer;
-    GLuint ssaoFBO;
-    GLuint ssaoColorBuffer;
+    GLuint directFBO;
+    GLuint directBuffer;
+    GLuint indirectFBO;
+    GLuint indirectBuffer;
     GLuint blurFBO;
     GLuint blurBuffer;
     GLuint shadowFBO;
@@ -308,7 +313,9 @@ private:
     GLint shadowModelMatIndex;
     GLint shadowLightMatIndex;
     GLint modelMatIndex;
+    GLint viewMatIndex;
     GLint projMatIndex;
+    GLint indProjMatIndex;
     GLint lightPosIndex;
     GLint viewPosIndex;
     GLint shininessIndex;

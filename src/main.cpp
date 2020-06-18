@@ -14,6 +14,7 @@
 #include "utils.h"
 #include "camera.h"
 #include "scene.h"
+#include "FreeImage.h"
 
 // Window
 int windowWidth{1600};
@@ -39,6 +40,7 @@ void updateCamera();
 void update();
 void prepare();
 void mainLoop();
+void screenShot();
 
 // Input
 std::map<int, TimePoint> pressTime;
@@ -211,6 +213,17 @@ void initWindow()
     // glCullFace(GL_FRONT);
     glDebugMessageCallback(messageCallback, 0);
 }
+void screenShot()
+{
+    BYTE *pixels = new BYTE[3 * windowWidth * windowHeight];
+    glReadPixels(0, 0, windowWidth, windowHeight, GL_BGR, GL_UNSIGNED_BYTE, pixels);
+    FIBITMAP *image = FreeImage_ConvertFromRawBits(pixels, windowWidth, windowHeight,
+                                                   3 * windowWidth, 24, 0xFF0000, 0x00FF00, 0x0000FF, false);
+    FreeImage_Save(FIF_PNG, image, "screenshot.png", 0);
+
+    FreeImage_Unload(image);
+    delete[] pixels;
+}
 static void errorCallback(int error, const char *description)
 {
     std::cerr << error << " " << description << std::endl;
@@ -227,6 +240,8 @@ static void keyCallback(GLFWwindow *window, int key, int scanCode, int action, i
         break;
     case GLFW_RELEASE:
         pressing[key] = false;
+        if (key == GLFW_KEY_F1)
+            screenShot();
         break;
     }
 }

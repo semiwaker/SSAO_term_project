@@ -2,39 +2,22 @@
 
 in vec2 texCoord;
 
-out float fragColor;
+out vec4 fragColor;
 
 uniform sampler2D texturePosition;
 uniform sampler2D textureNormal;
 uniform sampler2D textureAlbedo;
 uniform sampler2D textureLight;
 uniform sampler2D textureNoise;
-uniform sampler2D textureHDR;
 
 uniform vec3 kernel[64];
-uniform mat4 viewMat;
 uniform mat4 projMat;
 
 const vec2 noiseScale = vec2(1600.0, 900.0) / 4.0;
 
-const float radius = 0.01;
+const float radius = 0.1;
 const float bias = 0.000;
-const float occPower = 1.0;
-
-const vec2 invAtan = vec2(0.1591, 0.3183);
-vec2 SampleSphericalMap(vec3 v)
-{
-    vec3 v1 = inverse(mat3(viewMat)) * v;
-    vec2 uv = vec2(atan(v1.z, v1.x), asin(v1.y));
-    uv *= invAtan;
-    uv += 0.5;
-    return uv;
-}
-float Illuminance(vec3 v)
-{
-    float hdr = texture(textureHDR, SampleSphericalMap(v)).a;
-    return exp2(hdr - 128);
-}
+const float area = 10;
 
 void main()
 {
@@ -46,7 +29,7 @@ void main()
     vec3 bitangent = cross(normal, tangent);
     mat3 TBN       = mat3(tangent, bitangent, normal);
 
-    float occlusion = 0.0;
+    vec3 occlusion = vec3(0.0);
     for(int i = 0; i < 64; ++i)
     {
         vec3 dir = TBN * kernel[i];
@@ -58,12 +41,19 @@ void main()
         offset.xyz = offset.xyz * 0.5 + 0.5;
 
         float sampleDepth = texture(texturePosition, offset.xy).z;
-        float rangeCheck = smoothstep(0.0, 1.0, radius / abs(fragPos.z - sampleDepth));
-        if (sampleDepth >= s.z + bias)
-            occlusion += 1.0 - Illuminance(dir) * rangeCheck;
-        // occlusion += (sampleDepth >= s.z + bias ? 1.0 : 0.0) * rangeCheck;
+        // float rangeCheck = smoothstep(0.0, 1.0, radius / abs(fragPos.z - sampleDepth));
+        vec3 Snorm = texture(textureNormal, offset.xy).xyz;
+        vec3 SR = normalize(fragPos-s);
+        float thetaS = dot(Snorm, SR);
+        if (sampleDepth < s.z + bias && abs(sampleDepth-s.z) < 0.5 && thetaS > 0.0)
+        {
+            vec3 sampleColor = texture(textureAlbedo, offset.xy).rgb;
+            float dis = max(1.0, length(s - fragPos));
+            float thetaR = abs(dot(normal, SR));
+            occlusion += sampleColor * area * thetaS * thetaR / dis / dis;
+        }
     }
-    occlusion = 1.0 - (occlusion / 64.0);
+    occlusion /= 64.0;
     // occlusion = (occlusion / 64.0);
-    fragColor = pow(occlusion, occPower);
+    fragColor = vec4(occlusion, 1.0);
 }
