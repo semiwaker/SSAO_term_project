@@ -795,8 +795,8 @@ void SSDORenderer::render(std::shared_ptr<Node> root, glm::mat4 proj, const Came
     geometryPass(root, viewMat, proj);
     ssdoDirectPass(viewMat, proj);
     blurPass();
-    stencilPass(root, viewMat, proj);
     ssdoIndirectPass(proj);
+    stencilPass(root, viewMat, proj);
     lightingPass(camera.center());
 }
 void SSDORenderer::geometryPass(std::shared_ptr<Node> root, glm::mat4 viewMat, glm::mat4 projMat) const
