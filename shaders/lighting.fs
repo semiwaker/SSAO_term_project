@@ -10,6 +10,8 @@ uniform sampler2D textureAlbedo;
 uniform sampler2D textureLight;
 uniform sampler2D textureSSAO;
 
+// uniform sampler2D shadow;
+
 uniform vec3 lightPos;
 uniform vec3 viewPos;
 
@@ -42,6 +44,7 @@ void main()
     float AO = texture(textureSSAO, texCoord).r;
     float lighted = blurLight();
 
+    AO = 1.0;
 
     vec4 ambient = vec4(lightAmbient, 1.0) * color * AO;
 
@@ -58,4 +61,5 @@ void main()
     // if (lighted < 0.0) fragColor = ambient;
     // fragColor = lightSpacePos;
     // fragColor = vec4(vec3(texture(shadow, texCoord).r), 1.0);
+    // fragColor = vec4(vec3(lighted), 1.0);
 }

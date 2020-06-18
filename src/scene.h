@@ -186,20 +186,13 @@ public:
     ~SkyBox();
 
     void render(glm::mat4 view, glm::mat4 proj) const;
-    void prepare(glm::mat4 proj) const;
-    void bindCubeMap(int pos) const;
+    void bind(int pos) const;
 
 private:
-    Pipeline capture;
     Pipeline skybox;
-    GLuint FBO;
-    GLuint RBO;
     GLuint hdr;
-    GLuint cubeMap;
     GLuint VAO;
     GLuint VBO;
-    GLuint captureViewIndex;
-    GLuint captureProjIndex;
     GLuint renderViewIndex;
     GLuint renderProjIndex;
     int width;

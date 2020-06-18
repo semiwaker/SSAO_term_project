@@ -6,6 +6,7 @@
 
 #include "scene.h"
 #include "utils.h"
+#include "rgbe.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -433,61 +434,33 @@ void GBuffer::unbind() const
 SkyBox::SkyBox(const std::string &name, int screenWidth, int screenHeight)
     : width(screenWidth), height(screenHeight)
 {
-    int width, height, nrComponents;
-    float *data = stbi_loadf(name.c_str(), &width, &height, &nrComponents, 0);
-    if (data)
+    int width, height;
+    // float *data = stbi_loadf(name.c_str(), &width, &height, &nrComponents, 0);
+    FILE *f{NULL};
+    fopen_s(&f, name.c_str(), "rb");
+    RGBE_ReadHeader(f, &width, &height, nullptr);
+    // std::cerr << width << " " << height << std::endl;
+    float *data = new float[4 * width * height];
+    if (RGBE_RETURN_SUCCESS == RGBE_ReadPixels_RLE(f, data, width, height))
     {
         glGenTextures(1, &hdr);
         glBindTexture(GL_TEXTURE_2D, hdr);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, width, height, 0, GL_RGB, GL_FLOAT, data);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0, GL_RGBA, GL_FLOAT, data);
 
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-        stbi_image_free(data);
+        delete data;
+        // stbi_image_free(data);
     }
     else
     {
+        delete data;
         std::cerr << "Failed to load HDR image." << std::endl;
     }
     CHECKERROR("SkyBox HDRMap");
-
-    glGenFramebuffers(1, &FBO);
-    glGenRenderbuffers(1, &RBO);
-
-    glBindFramebuffer(GL_FRAMEBUFFER, FBO);
-    glBindRenderbuffer(GL_RENDERBUFFER, RBO);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, 512, 512);
-    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, RBO);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    CHECKERROR("SkyBox FrameBuffer");
-
-    glGenTextures(1, &cubeMap);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMap);
-    for (unsigned int i = 0; i < 6; ++i)
-    {
-        // note that we store each face with 16 bit floating point values
-        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB16F,
-                     512, 512, 0, GL_RGB, GL_FLOAT, nullptr);
-    }
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    CHECKERROR("SkyBox CubeMap");
-
-    Shader captureVS("shaders/capture.vs", GL_VERTEX_SHADER);
-    Shader captureFS("shaders/capture.fs", GL_FRAGMENT_SHADER);
-    capture.addShader(captureVS);
-    capture.addShader(captureFS);
-    capture.link();
-    capture.use();
-    glUniform1i(capture.uniformLocation("hdr"), 0);
-    captureViewIndex = capture.uniformLocation("view");
-    captureProjIndex = capture.uniformLocation("proj");
 
     Shader skyboxVS("shaders/skybox.vs", GL_VERTEX_SHADER);
     Shader skyboxFS("shaders/skybox.fs", GL_FRAGMENT_SHADER);
@@ -495,7 +468,7 @@ SkyBox::SkyBox(const std::string &name, int screenWidth, int screenHeight)
     skybox.addShader(skyboxFS);
     skybox.link();
     skybox.use();
-    glUniform1i(skybox.uniformLocation("skybox"), 0);
+    glUniform1i(skybox.uniformLocation("hdr"), 0);
     renderViewIndex = skybox.uniformLocation("view");
     renderProjIndex = skybox.uniformLocation("proj");
 
@@ -560,10 +533,7 @@ SkyBox::SkyBox(const std::string &name, int screenWidth, int screenHeight)
 }
 SkyBox::~SkyBox()
 {
-    glDeleteRenderbuffers(1, &RBO);
-    glDeleteFramebuffers(1, &FBO);
     glDeleteTextures(1, &hdr);
-    glDeleteTextures(1, &cubeMap);
     glDeleteBuffers(1, &VBO);
     glDeleteVertexArrays(1, &VAO);
 }
@@ -574,51 +544,18 @@ void SkyBox::render(glm::mat4 view, glm::mat4 proj) const
     glUniformMatrix4fv(renderViewIndex, 1, false, glm::value_ptr(view));
     glBindVertexArray(VAO);
     glDepthFunc(GL_LEQUAL);
-    bindCubeMap(0);
+    // bindCubeMap(0);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, hdr);
     glDrawArrays(GL_TRIANGLES, 0, 36);
     glBindVertexArray(0);
     glDepthFunc(GL_LESS);
     CHECKERROR("SkyBox Render");
 }
-void SkyBox::prepare(glm::mat4 proj) const
-{
-    glm::mat4 captureProjection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
-    glm::mat4 captureViews[] =
-        {
-            glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)),
-            glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)),
-            glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f)),
-            glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f)),
-            glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, -1.0f, 0.0f)),
-            glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, -1.0f, 0.0f))};
-
-    // convert HDR equirectangular environment map to cubemap equivalent
-    capture.use();
-    glUniformMatrix4fv(captureProjIndex, 1, false, glm::value_ptr(proj));
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, hdr);
-
-    glViewport(0, 0, 512, 512);
-    glBindFramebuffer(GL_FRAMEBUFFER, FBO);
-    glBindVertexArray(VAO);
-    for (unsigned int i = 0; i < 6; ++i)
-    {
-        glUniformMatrix4fv(captureViewIndex, 1, false, glm::value_ptr(captureViews[i]));
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                               GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, cubeMap, 0);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-        glDrawArrays(GL_TRIANGLES, 0, 36);
-    }
-    glBindVertexArray(0);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    glViewport(0, 0, width, height);
-    CHECKERROR("SkyBox Prepare");
-}
-void SkyBox::bindCubeMap(int pos) const
+void SkyBox::bind(int pos) const
 {
     glActiveTexture(GL_TEXTURE0 + pos);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMap);
+    glBindTexture(GL_TEXTURE_2D, hdr);
     CHECKERROR("SkyBox bindCubeMap");
 }
 
@@ -822,7 +759,7 @@ void SSAORenderer::setLight(glm::vec3 lightPos, glm::vec3 lightDir) const
     auto look = glm::normalize(lightPos + lightDir);
     auto lightMat =
         // glm::ortho(-128.0f, 128.0f, -128.0f, 128.0f, 80.0f, 200.0f) *
-        glm::perspective(glm::radians(60.0f), 1.0f, 80.0f, 200.0f) *
+        glm::perspective(glm::radians(60.0f), 1.0f, 100.0f, 300.0f) *
         // glm::lookAt(lightPos, look, glm::vec3(0.0f, 0.0f, 1.0f));
         glm::lookAt(lightPos, look, glm::cross(randDir, look));
     geometry.use();
@@ -835,7 +772,6 @@ void SSAORenderer::setLight(glm::vec3 lightPos, glm::vec3 lightDir) const
 void SSAORenderer::render(std::shared_ptr<Node> root, glm::mat4 proj, const Camera &camera) const
 {
     auto viewMat = camera.getTransMat();
-    skybox.prepare(proj);
     skybox.render(viewMat, proj);
     shadowPass(root);
     geometryPass(root, viewMat, proj);
@@ -942,6 +878,10 @@ void SSAORenderer::lightingPass(glm::vec3 viewPos) const
     glActiveTexture(GL_TEXTURE4);
     glBindTexture(GL_TEXTURE_2D, blurBuffer);
     glUniform3f(viewPosIndex, viewPos.x, viewPos.y, viewPos.z);
+
+    // glActiveTexture(GL_TEXTURE5);
+    // glBindTexture(GL_TEXTURE_2D, shadowBuffer);
+    // glUniform1i(lighting.uniformLocation("shadow"), 5);
 
     CHECKERROR("viewPos Error");
     quad.draw();
@@ -1071,7 +1011,7 @@ Scene::Scene(const aiScene *scene, const std::string &directory) : ai_scene(scen
 
     // renderer = make_unique<BaselineRenderer>(meshes, true, true, true, false, "baseline_tangent.vs", "baseline_normals.fs");
     renderer = make_unique<SSAORenderer>(meshes, 1600, 900, true, false, true, false);
-    renderer->setLight(glm::vec3{5.0f, -10.0f, 0.0f} * 10.0f, glm::vec3{-0.5f, 1.0f, 0.0f});
+    renderer->setLight(glm::vec3{50.0f, -100.0f, 100.0f}, glm::vec3{-0.5f, 1.0f, -1.0f});
 }
 Scene::~Scene()
 {
