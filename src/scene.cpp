@@ -821,9 +821,10 @@ void SSAORenderer::setLight(glm::vec3 lightPos, glm::vec3 lightDir) const
     auto randDir = glm::normalize(glm::vec3{distr(engine), distr(engine), distr(engine)});
     auto look = glm::normalize(lightPos + lightDir);
     auto lightMat =
-        glm::ortho(-80.0f, 80.0f, -80.0f, 80.0f, 50.0f, 200.0f) *
-        glm::lookAt(lightPos, look, glm::vec3(0.0f, 1.0f, 0.0f));
-    // glm::lookAt(lightPos, look, glm::cross(randDir, look));
+        // glm::ortho(-128.0f, 128.0f, -128.0f, 128.0f, 80.0f, 200.0f) *
+        glm::perspective(glm::radians(60.0f), 1.0f, 80.0f, 200.0f) *
+        // glm::lookAt(lightPos, look, glm::vec3(0.0f, 0.0f, 1.0f));
+        glm::lookAt(lightPos, look, glm::cross(randDir, look));
     geometry.use();
     glUniformMatrix4fv(lightMatIndex, 1, false, glm::value_ptr(lightMat));
     glUniform3f(lightDirIndex, lightDir.x, lightDir.y, lightDir.z);
@@ -941,6 +942,7 @@ void SSAORenderer::lightingPass(glm::vec3 viewPos) const
     glActiveTexture(GL_TEXTURE4);
     glBindTexture(GL_TEXTURE_2D, blurBuffer);
     glUniform3f(viewPosIndex, viewPos.x, viewPos.y, viewPos.z);
+
     CHECKERROR("viewPos Error");
     quad.draw();
     glDisable(GL_STENCIL_TEST);
@@ -1069,7 +1071,7 @@ Scene::Scene(const aiScene *scene, const std::string &directory) : ai_scene(scen
 
     // renderer = make_unique<BaselineRenderer>(meshes, true, true, true, false, "baseline_tangent.vs", "baseline_normals.fs");
     renderer = make_unique<SSAORenderer>(meshes, 1600, 900, true, false, true, false);
-    renderer->setLight(glm::vec3{50.0f, -100.0f, 0.0f}, glm::vec3{-0.5f, 1.0f, 0.0f});
+    renderer->setLight(glm::vec3{5.0f, -10.0f, 0.0f} * 10.0f, glm::vec3{-0.5f, 1.0f, 0.0f});
 }
 Scene::~Scene()
 {

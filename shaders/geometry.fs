@@ -31,5 +31,5 @@ void main()
 
     float bias = max(0.0005 * (1.0 - dot(outNormal, normalize(lightDir))), 0.0);
     outLight = shadowPos.z > 1.0 ? 1.0 : step(shadowPos.z, texture(textureShadow, shadowPos.xy).r + bias);
-    // outLight = vec4(outPosition.xyz * 0.5 + 0.5, 1.0);
+    // outLight = texture(textureShadow, shadowPos.xy).r;
 }

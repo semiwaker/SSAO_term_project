@@ -57,5 +57,5 @@ void main()
     fragColor = ambient + (diffuse + specular) * lighted;
     // if (lighted < 0.0) fragColor = ambient;
     // fragColor = lightSpacePos;
-    // fragColor = vec4(vec3(AO), 1.0);
+    // fragColor = vec4(vec3(texture(shadow, texCoord).r), 1.0);
 }
