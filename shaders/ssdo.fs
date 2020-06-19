@@ -15,6 +15,8 @@ uniform vec3 kernel[64];
 uniform mat4 viewMat;
 uniform mat4 projMat;
 
+uniform int AOType;
+
 const vec2 noiseScale = vec2(1600.0, 900.0) / 4.0;
 
 const float radius = 0.01;
@@ -59,11 +61,14 @@ void main()
 
         float sampleDepth = texture(texturePosition, offset.xy).z;
         float rangeCheck = smoothstep(0.0, 1.0, radius / abs(fragPos.z - sampleDepth));
-        if (sampleDepth >= s.z + bias)
-            occlusion += 1.0 - Illuminance(dir) * rangeCheck;
-        // occlusion += (sampleDepth >= s.z + bias ? 1.0 : 0.0) * rangeCheck;
+        if (AOType == 0)
+        {
+            if (sampleDepth >= s.z + bias)
+                occlusion += (1.0 - Illuminance(dir)) * rangeCheck;
+        } else
+        if (AOType == 1)
+            occlusion += (sampleDepth >= s.z + bias ? 1.0 : 0.0) * rangeCheck;
     }
     occlusion = 1.0 - (occlusion / 64.0);
-    // occlusion = (occlusion / 64.0);
     fragColor = pow(occlusion, occPower);
 }

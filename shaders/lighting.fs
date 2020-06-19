@@ -20,6 +20,8 @@ uniform vec3 lightAmbient;
 uniform vec3 lightDiffuse;
 uniform vec3 lightSpecular;
 
+uniform int outputType;
+
 
 float blurLight()
 {
@@ -71,9 +73,13 @@ void main()
     float spec = pow(max(dot(viewDir, reflectDir), 0.0), 1.0);
     vec4 specular = spec * color * vec4(lightSpecular, shininess);
 
-    // fragColor = ambient + (diffuse + specular) * lighted;
-    fragColor = ambient + (diffuse + specular) * lighted + bounce;
-    // fragColor = bounce;
+    if (outputType == 0)
+        fragColor = ambient + (diffuse + specular) * lighted + bounce;
+    else if (outputType == 1)
+        fragColor = ambient + (diffuse + specular) * lighted;
+    else if (outputType == 2)
+        fragColor = bounce;
+    else
+        fragColor = vec4(vec3(AO), 1.0);
     // fragColor = vec4(vec3(texture(shadow, texCoord).r), 1.0);
-    // fragColor = vec4(vec3(AO), 1.0);
 }

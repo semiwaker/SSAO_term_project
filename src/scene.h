@@ -211,9 +211,11 @@ public:
 
     virtual void render(std::shared_ptr<Node> root, glm::mat4 proj, const Camera &camera) const = 0;
     virtual void setLight(glm::vec3 lightPos, glm::vec3 lightDir) const = 0;
+    virtual void setMode(int newMode);
 
 protected:
     const std::vector<Mesh> &meshes;
+    int mode;
 };
 
 class BaselineRenderer : public Renderer
@@ -249,6 +251,17 @@ private:
     bool _normalsMap{false};
     bool _heightMap{false};
 };
+
+const int AO_TYPE_SSDO = 0x0;
+const int AO_TYPE_SSAO = 0x4;
+const int AO_TYPE_NONE = 0x8;
+const int AO_TYPE_MASK = 0xc;
+const int OUTPUT_TYPE_FULL = 0x0;
+const int OUTPUT_TYPE_DIRECT = 0x1;
+const int OUTPUT_TYPE_BOUNCE = 0x2;
+const int OUTPUT_TYPE_AO = 0x3;
+const int OUTPUT_TYPE_MASK = 0x3;
+
 class SSDORenderer : public Renderer
 {
 public:
@@ -286,6 +299,7 @@ private:
     void lightingPass(glm::vec3 viewPos) const;
     void stencilPass(std::shared_ptr<Node> root, glm::mat4 viewMat, glm::mat4 projMat) const;
     void stencilRender(int idx, glm::mat4 modelMat, glm::mat4 viewMat, glm::mat4 projMat) const;
+    void setMode(int newMode) override;
 
     Pipeline geometry;
     Pipeline ssdoDirect;
@@ -321,6 +335,8 @@ private:
     GLint shininessIndex;
     GLint shininessStrengthIndex;
     GLint stencilWVPIndex;
+    GLint AOTypeIndex;
+    GLint outputTypeIndex;
     bool _diffuseMap{false};
     bool _specularMap{false};
     bool _normalsMap{false};
@@ -342,6 +358,7 @@ public:
     ~Scene();
 
     void render(glm::mat4 proj, const Camera &camera) const;
+    void setMode(int newMode);
 
     std::map<std::string, Texture> loadMaterialTexures(unsigned int index);
     MaterialParams loadMaterialParams(unsigned int index);

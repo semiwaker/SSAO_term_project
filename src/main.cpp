@@ -32,9 +32,10 @@ const float keySensitive = 0.3f;
 const float keyRotateSensitive = 0.01f;
 const float mouseSensitive = 0.001f;
 
-// Rendor
+// Render
 
 std::unique_ptr<Scene> scene;
+int renderMode = AO_TYPE_SSDO | OUTPUT_TYPE_FULL;
 
 void updateCamera();
 void update();
@@ -147,6 +148,7 @@ void prepare()
     // scene = std::make_unique<Scene>(ai_scene, "model/Medieval tower/");
     scene = std::make_unique<Scene>(ai_scene, "model/dragon");
     std::cout << "Model loaded" << std::endl;
+    scene->setMode(renderMode);
 }
 void mainLoop()
 {
@@ -240,8 +242,40 @@ static void keyCallback(GLFWwindow *window, int key, int scanCode, int action, i
         break;
     case GLFW_RELEASE:
         pressing[key] = false;
-        if (key == GLFW_KEY_F1)
+        switch (key)
+        {
+        case GLFW_KEY_F1:
             screenShot();
+            break;
+        case GLFW_KEY_8:
+            renderMode = AO_TYPE_NONE | renderMode & OUTPUT_TYPE_MASK;
+            scene->setMode(renderMode);
+            break;
+        case GLFW_KEY_9:
+            renderMode = AO_TYPE_SSAO | renderMode & OUTPUT_TYPE_MASK;
+            scene->setMode(renderMode);
+            break;
+        case GLFW_KEY_0:
+            renderMode = AO_TYPE_SSDO | renderMode & OUTPUT_TYPE_MASK;
+            scene->setMode(renderMode);
+            break;
+        case GLFW_KEY_1:
+            renderMode = renderMode & AO_TYPE_MASK | OUTPUT_TYPE_FULL;
+            scene->setMode(renderMode);
+            break;
+        case GLFW_KEY_2:
+            renderMode = renderMode & AO_TYPE_MASK | OUTPUT_TYPE_DIRECT;
+            scene->setMode(renderMode);
+            break;
+        case GLFW_KEY_3:
+            renderMode = renderMode & AO_TYPE_MASK | OUTPUT_TYPE_BOUNCE;
+            scene->setMode(renderMode);
+            break;
+        case GLFW_KEY_4:
+            renderMode = renderMode & AO_TYPE_MASK | OUTPUT_TYPE_AO;
+            scene->setMode(renderMode);
+            break;
+        }
         break;
     }
 }

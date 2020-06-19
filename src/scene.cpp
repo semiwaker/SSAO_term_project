@@ -562,6 +562,10 @@ void SkyBox::bind(int pos) const
 Renderer::Renderer(const std::vector<Mesh> &mesh) : meshes(mesh)
 {
 }
+void Renderer::setMode(int newMode)
+{
+    mode = newMode;
+}
 BaselineRenderer::BaselineRenderer(
     const std::vector<Mesh> &mesh,
     bool diffuseMap,
@@ -700,6 +704,7 @@ SSDORenderer::SSDORenderer(
     glUniform3fv(ssdoDirect.uniformLocation("kernel"), 64, kernel.data());
     projMatIndex = ssdoDirect.uniformLocation("projMat");
     viewMatIndex = ssdoDirect.uniformLocation("viewMat");
+    AOTypeIndex = ssdoDirect.uniformLocation("AOType");
     CHECKERROR("Direct");
 
     Shader IndirectFS("shaders/indirect.fs"s, GL_FRAGMENT_SHADER);
@@ -752,6 +757,7 @@ SSDORenderer::SSDORenderer(
     glUniform3f(lighting.uniformLocation("lightSpecular"), 1.0f, 1.0f, 1.0f);
     lightPosIndex = lighting.uniformLocation("lightPos");
     viewPosIndex = lighting.uniformLocation("viewPos");
+    outputTypeIndex = lighting.uniformLocation("outputType");
     CHECKERROR("lighting");
 
     Shader stencilVS("shaders/stencil.vs", GL_VERTEX_SHADER);
@@ -1056,6 +1062,53 @@ void SSDORenderer::makeShadowFBO()
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     CHECKERROR("makeShadowFBO");
 }
+void SSDORenderer::setMode(int newMode)
+{
+    mode = newMode;
+    int ao_type;
+    int output_type;
+    std::cout << "New mode: "
+              << " ";
+    switch (mode & AO_TYPE_MASK)
+    {
+    case AO_TYPE_SSDO:
+        std::cout << "SSDO";
+        ao_type = 0;
+        break;
+    case AO_TYPE_SSAO:
+        std::cout << "SSAO";
+        ao_type = 1;
+        break;
+    case AO_TYPE_NONE:
+        std::cout << "NONE";
+        ao_type = 2;
+        break;
+    }
+    output_type = mode & OUTPUT_TYPE_MASK;
+    if (output_type == OUTPUT_TYPE_FULL && ao_type != 0)
+        output_type = OUTPUT_TYPE_DIRECT;
+    std::cout << " ";
+    switch (output_type)
+    {
+    case OUTPUT_TYPE_FULL:
+        std::cout << "Full";
+        break;
+    case OUTPUT_TYPE_DIRECT:
+        std::cout << "Direct";
+        break;
+    case OUTPUT_TYPE_BOUNCE:
+        std::cout << "Bounce";
+        break;
+    case OUTPUT_TYPE_AO:
+        std::cout << "AO Value";
+        break;
+    }
+    std::cout << endl;
+    ssdoDirect.use();
+    glUniform1i(AOTypeIndex, ao_type);
+    lighting.use();
+    glUniform1i(outputTypeIndex, output_type);
+}
 
 Scene::Scene(const aiScene *scene, const std::string &directory) : ai_scene(scene), dir(directory)
 {
@@ -1080,6 +1133,10 @@ Scene::~Scene()
 void Scene::render(glm::mat4 proj, const Camera &camera) const
 {
     renderer->render(root, proj, camera);
+}
+void Scene::setMode(int newMode)
+{
+    renderer->setMode(newMode);
 }
 
 std::map<std::string, Texture> Scene::loadMaterialTexures(unsigned int index)
