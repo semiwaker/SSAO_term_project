@@ -186,15 +186,23 @@ public:
     ~SkyBox();
 
     void render(glm::mat4 view, glm::mat4 proj) const;
-    void bind(int pos) const;
+    void prepare(glm::mat4 proj) const;
+    void bindHDR(int pos) const;
+    void bindCubeMap(int pos) const;
 
 private:
     Pipeline skybox;
+    Pipeline capture;
     GLuint hdr;
+    GLuint cubeMap;
     GLuint VAO;
     GLuint VBO;
+    GLuint FBO;
+    GLuint RBO;
     GLuint renderViewIndex;
     GLuint renderProjIndex;
+    GLuint captureViewIndex;
+    GLuint captureProjIndex;
     int width;
     int height;
 };
@@ -212,10 +220,12 @@ public:
     virtual void render(std::shared_ptr<Node> root, glm::mat4 proj, const Camera &camera) const = 0;
     virtual void setLight(glm::vec3 lightPos, glm::vec3 lightDir) const = 0;
     virtual void setMode(int newMode);
+    virtual void setProj(glm::mat4 projMat);
 
 protected:
     const std::vector<Mesh> &meshes;
     int mode;
+    glm::mat4 _projMat;
 };
 
 class BaselineRenderer : public Renderer
@@ -300,6 +310,7 @@ private:
     void stencilPass(std::shared_ptr<Node> root, glm::mat4 viewMat, glm::mat4 projMat) const;
     void stencilRender(int idx, glm::mat4 modelMat, glm::mat4 viewMat, glm::mat4 projMat) const;
     void setMode(int newMode) override;
+    void setProj(glm::mat4 projMat) override;
 
     Pipeline geometry;
     Pipeline ssdoDirect;
@@ -336,6 +347,7 @@ private:
     GLint shininessStrengthIndex;
     GLint stencilWVPIndex;
     GLint AOTypeIndex;
+    GLint lightingAOTypeIndex;
     GLint outputTypeIndex;
     bool _diffuseMap{false};
     bool _specularMap{false};

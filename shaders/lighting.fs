@@ -20,6 +20,7 @@ uniform vec3 lightAmbient;
 uniform vec3 lightDiffuse;
 uniform vec3 lightSpecular;
 
+uniform int AOType;
 uniform int outputType;
 
 
@@ -58,7 +59,7 @@ void main()
     vec3 norm    = texture(textureNormal, texCoord).rgb;
     vec4 color = vec4(texture(textureAlbedo, texCoord).rgb, 1.0);
     float shininess = texture(textureAlbedo, texCoord).a * 10.0;
-    float AO = texture(textureDirect, texCoord).r;
+    vec4 AO = texture(textureDirect, texCoord);
     vec4 bounce = vec4(blurIndirect(), 1.0);
     float lighted = blurLight();
 
@@ -80,6 +81,6 @@ void main()
     else if (outputType == 2)
         fragColor = bounce;
     else
-        fragColor = vec4(vec3(AO), 1.0);
+        fragColor = AO;
     // fragColor = vec4(vec3(texture(shadow, texCoord).r), 1.0);
 }

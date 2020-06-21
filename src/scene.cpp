@@ -472,7 +472,42 @@ SkyBox::SkyBox(const std::string &name, int screenWidth, int screenHeight)
     renderViewIndex = skybox.uniformLocation("view");
     renderProjIndex = skybox.uniformLocation("proj");
 
+    Shader captureVS("shaders/capture.vs", GL_VERTEX_SHADER);
+    Shader captureFS("shaders/capture.fs", GL_FRAGMENT_SHADER);
+    capture.addShader(captureVS);
+    capture.addShader(captureFS);
+    capture.link();
+    capture.use();
+    glUniform1i(capture.uniformLocation("hdr"), 0);
+    captureViewIndex = capture.uniformLocation("view");
+    captureProjIndex = capture.uniformLocation("proj");
+
     CHECKERROR("SkyBox Pipelines");
+
+    glGenFramebuffers(1, &FBO);
+    glGenRenderbuffers(1, &RBO);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, FBO);
+    glBindRenderbuffer(GL_RENDERBUFFER, RBO);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, 512, 512);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, RBO);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    CHECKERROR("SkyBox FrameBuffer");
+
+    glGenTextures(1, &cubeMap);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMap);
+    for (unsigned int i = 0; i < 6; ++i)
+    {
+        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB16F,
+                     512, 512, 0, GL_RGB, GL_FLOAT, nullptr);
+    }
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
     float skyboxVertices[] = {
         -1.0f, 1.0f, -1.0f,
@@ -537,6 +572,39 @@ SkyBox::~SkyBox()
     glDeleteBuffers(1, &VBO);
     glDeleteVertexArrays(1, &VAO);
 }
+void SkyBox::prepare(glm::mat4 proj) const
+{
+    glm::mat4 captureProjection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
+    glm::mat4 captureViews[] =
+        {
+            glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)),
+            glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)),
+            glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f)),
+            glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f)),
+            glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, -1.0f, 0.0f)),
+            glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, -1.0f, 0.0f))};
+
+    capture.use();
+    glUniformMatrix4fv(captureProjIndex, 1, 0, glm::value_ptr(proj));
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, hdr);
+
+    glViewport(0, 0, 512, 512);
+    glBindFramebuffer(GL_FRAMEBUFFER, FBO);
+    glBindVertexArray(VAO);
+    glDepthFunc(GL_LEQUAL);
+    for (unsigned int i = 0; i < 6; ++i)
+    {
+        glUniformMatrix4fv(captureViewIndex, 1, 0, glm::value_ptr(captureViews[i]));
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                               GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, cubeMap, 0);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindVertexArray(0);
+    glDepthFunc(GL_LESS);
+}
 void SkyBox::render(glm::mat4 view, glm::mat4 proj) const
 {
     skybox.use();
@@ -544,7 +612,6 @@ void SkyBox::render(glm::mat4 view, glm::mat4 proj) const
     glUniformMatrix4fv(renderViewIndex, 1, false, glm::value_ptr(view));
     glBindVertexArray(VAO);
     glDepthFunc(GL_LEQUAL);
-    // bindCubeMap(0);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, hdr);
     glDrawArrays(GL_TRIANGLES, 0, 36);
@@ -552,10 +619,16 @@ void SkyBox::render(glm::mat4 view, glm::mat4 proj) const
     glDepthFunc(GL_LESS);
     CHECKERROR("SkyBox Render");
 }
-void SkyBox::bind(int pos) const
+void SkyBox::bindHDR(int pos) const
 {
     glActiveTexture(GL_TEXTURE0 + pos);
     glBindTexture(GL_TEXTURE_2D, hdr);
+    CHECKERROR("SkyBox bindCubeMap");
+}
+void SkyBox::bindCubeMap(int pos) const
+{
+    glActiveTexture(GL_TEXTURE0 + pos);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMap);
     CHECKERROR("SkyBox bindCubeMap");
 }
 
@@ -565,6 +638,10 @@ Renderer::Renderer(const std::vector<Mesh> &mesh) : meshes(mesh)
 void Renderer::setMode(int newMode)
 {
     mode = newMode;
+}
+void Renderer::setProj(glm::mat4 projMat)
+{
+    _projMat = projMat;
 }
 BaselineRenderer::BaselineRenderer(
     const std::vector<Mesh> &mesh,
@@ -700,7 +777,7 @@ SSDORenderer::SSDORenderer(
     glUniform1i(ssdoDirect.uniformLocation("textureAlbedo"), 2);
     glUniform1i(ssdoDirect.uniformLocation("textureLight"), 3);
     glUniform1i(ssdoDirect.uniformLocation("textureNoise"), 4);
-    glUniform1i(ssdoDirect.uniformLocation("textureHDR"), 5);
+    glUniform1i(ssdoDirect.uniformLocation("textureCubeMap"), 5);
     glUniform3fv(ssdoDirect.uniformLocation("kernel"), 64, kernel.data());
     projMatIndex = ssdoDirect.uniformLocation("projMat");
     viewMatIndex = ssdoDirect.uniformLocation("viewMat");
@@ -757,6 +834,7 @@ SSDORenderer::SSDORenderer(
     glUniform3f(lighting.uniformLocation("lightSpecular"), 1.0f, 1.0f, 1.0f);
     lightPosIndex = lighting.uniformLocation("lightPos");
     viewPosIndex = lighting.uniformLocation("viewPos");
+    lightingAOTypeIndex = lighting.uniformLocation("AOType");
     outputTypeIndex = lighting.uniformLocation("outputType");
     CHECKERROR("lighting");
 
@@ -797,6 +875,7 @@ void SSDORenderer::render(std::shared_ptr<Node> root, glm::mat4 proj, const Came
 {
     auto viewMat = camera.getTransMat();
     skybox.render(viewMat, proj);
+    // skybox.prepare(proj);
     shadowPass(root);
     geometryPass(root, viewMat, proj);
     ssdoDirectPass(viewMat, proj);
@@ -854,7 +933,7 @@ void SSDORenderer::ssdoDirectPass(glm::mat4 viewMat, glm::mat4 projMat) const
     glClear(GL_COLOR_BUFFER_BIT);
     glActiveTexture(GL_TEXTURE4);
     glBindTexture(GL_TEXTURE_2D, noiseTexture);
-    skybox.bind(5);
+    skybox.bindCubeMap(5);
     glUniformMatrix4fv(projMatIndex, 1, false, glm::value_ptr(projMat));
     glUniformMatrix4fv(viewMatIndex, 1, false, glm::value_ptr(viewMat));
     CHECKERROR("projMat Error");
@@ -1001,7 +1080,7 @@ void SSDORenderer::makeSSDODirectFBO()
 
     glGenTextures(1, &directBuffer);
     glBindTexture(GL_TEXTURE_2D, directBuffer);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, _width, _height, 0, GL_RED, GL_FLOAT, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, _width, _height, 0, GL_RGBA, GL_FLOAT, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -1034,7 +1113,7 @@ void SSDORenderer::makeBlurFBO()
     glBindFramebuffer(GL_FRAMEBUFFER, blurFBO);
     glGenTextures(1, &blurBuffer);
     glBindTexture(GL_TEXTURE_2D, blurBuffer);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, _width, _height, 0, GL_RED, GL_FLOAT, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, _width, _height, 0, GL_RGBA, GL_FLOAT, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -1107,7 +1186,13 @@ void SSDORenderer::setMode(int newMode)
     ssdoDirect.use();
     glUniform1i(AOTypeIndex, ao_type);
     lighting.use();
+    glUniform1i(lightingAOTypeIndex, ao_type);
     glUniform1i(outputTypeIndex, output_type);
+}
+void SSDORenderer::setProj(glm::mat4 projMat)
+{
+    skybox.prepare(projMat);
+    _projMat = projMat;
 }
 
 Scene::Scene(const aiScene *scene, const std::string &directory) : ai_scene(scene), dir(directory)
@@ -1123,6 +1208,10 @@ Scene::Scene(const aiScene *scene, const std::string &directory) : ai_scene(scen
     // renderer = make_unique<BaselineRenderer>(meshes, true, true, true, false, "baseline_tangent.vs", "baseline_normals.fs");
     renderer = make_unique<SSDORenderer>(meshes, 1600, 900, true, false, true, false);
     renderer->setLight(glm::vec3{50.0f, -100.0f, 100.0f}, glm::vec3{-0.5f, 1.0f, -1.0f});
+    renderer->setProj(glm::perspective(
+        glm::radians(45.0f),
+        static_cast<float>(1600) / static_cast<float>(900),
+        0.1f, 500.0f));
 }
 Scene::~Scene()
 {

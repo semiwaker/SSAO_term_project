@@ -217,11 +217,13 @@ void initWindow()
 }
 void screenShot()
 {
+    static int shotCnt = 0;
+    shotCnt += 1;
     BYTE *pixels = new BYTE[3 * windowWidth * windowHeight];
     glReadPixels(0, 0, windowWidth, windowHeight, GL_BGR, GL_UNSIGNED_BYTE, pixels);
     FIBITMAP *image = FreeImage_ConvertFromRawBits(pixels, windowWidth, windowHeight,
                                                    3 * windowWidth, 24, 0xFF0000, 0x00FF00, 0x0000FF, false);
-    FreeImage_Save(FIF_PNG, image, "screenshot.png", 0);
+    FreeImage_Save(FIF_PNG, image, (std::string("screenshot") + std::to_string(shotCnt) + std::string(".png")).c_str(), 0);
 
     FreeImage_Unload(image);
     delete[] pixels;

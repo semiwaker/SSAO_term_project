@@ -2,14 +2,14 @@
 
 in vec2 texCoord;
 
-out float fragColor;
+out vec4 fragColor;
 
 uniform sampler2D texturePosition;
 uniform sampler2D textureNormal;
 uniform sampler2D textureAlbedo;
 uniform sampler2D textureLight;
 uniform sampler2D textureNoise;
-uniform sampler2D textureHDR;
+uniform samplerCube textureCubeMap;
 
 uniform vec3 kernel[64];
 uniform mat4 viewMat;
@@ -21,21 +21,12 @@ const vec2 noiseScale = vec2(1600.0, 900.0) / 4.0;
 
 const float radius = 0.01;
 const float bias = 0.000;
-const float occPower = 1.0;
 
-const vec2 invAtan = vec2(0.1591, 0.3183);
-vec2 SampleSphericalMap(vec3 v)
+vec3 Illuminance(vec3 v)
 {
-    vec3 v1 = inverse(mat3(viewMat)) * v;
-    vec2 uv = vec2(atan(v1.z, v1.x), asin(v1.y));
-    uv *= invAtan;
-    uv += 0.5;
-    return uv;
-}
-float Illuminance(vec3 v)
-{
-    float hdr = texture(textureHDR, SampleSphericalMap(v)).a;
-    return exp2(hdr - 128);
+    vec3 dir = inverse(mat3(viewMat)) * -v;
+    vec3 hdr = texture(textureCubeMap, dir.xyz).rgb;
+    return hdr;
 }
 
 void main()
@@ -48,7 +39,7 @@ void main()
     vec3 bitangent = cross(normal, tangent);
     mat3 TBN       = mat3(tangent, bitangent, normal);
 
-    float occlusion = 0.0;
+    vec3 occlusion = vec3(0.0);
     for(int i = 0; i < 64; ++i)
     {
         vec3 dir = TBN * kernel[i];
@@ -64,11 +55,13 @@ void main()
         if (AOType == 0)
         {
             if (sampleDepth >= s.z + bias)
-                occlusion += (1.0 - Illuminance(dir)) * rangeCheck;
+                occlusion += Illuminance(dir) * dot(normal, normalize(dir)) * rangeCheck * 0.5;
         } else
         if (AOType == 1)
-            occlusion += (sampleDepth >= s.z + bias ? 1.0 : 0.0) * rangeCheck;
+            occlusion += vec3(sampleDepth >= s.z + bias ? 1.0 : 0.0) * rangeCheck;
+        else if (AOType == 2)
+            occlusion += vec3(1.0);
     }
-    occlusion = 1.0 - (occlusion / 64.0);
-    fragColor = pow(occlusion, occPower);
+    occlusion = (occlusion / 64.0);
+    fragColor = vec4(occlusion, 1.0);
 }
