@@ -13,6 +13,7 @@
 + 移动鼠标：改变摄像头方向，使摄像头往鼠标移动方向转向。
 + 数字1~4：4种不同输出模式。1 打开遮蔽和一次弹射（默认），2 打开遮蔽，关闭一次弹射，3 查看一次弹射， 4 查看AO值。
 + 数字8、9、0：3种不同遮蔽计算方式。8 无遮蔽， 9 SSAO， 0 SSDO。
++ F1：截图，存储在当前目录下。
 
 ## 代码说明
 
@@ -26,6 +27,7 @@
 着色器代码
 
 + baseline.fs baseline.vs baseline_normals.fs baseline_tangent.vs 基准渲染管线，用于对照。
++ capture.vs capture.fs 从SphericalMap制作CubeMap用于加速SSDO direct的计算。
 + skybox.vs skybox.fs 渲染背景的管线。
 + shadow.vs shadow.fs 渲染shadow map的管线。
 + geometry.vs geometry.fs 渲染屏幕空间上几何信息的管线。
